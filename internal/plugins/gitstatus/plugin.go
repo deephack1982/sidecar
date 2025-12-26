@@ -24,11 +24,19 @@ const (
 type ViewMode int
 
 const (
-	ViewModeStatus       ViewMode = iota // Current file list
+	ViewModeStatus       ViewMode = iota // Current file list (three-pane layout)
 	ViewModeHistory                      // Commit browser
 	ViewModeCommitDetail                 // Single commit files
-	ViewModeDiff                         // Enhanced diff view
+	ViewModeDiff                         // Full-screen diff view (from history)
 	ViewModeCommit                       // Commit message editor
+)
+
+// FocusPane represents which pane is active in the three-pane view.
+type FocusPane int
+
+const (
+	PaneSidebar FocusPane = iota
+	PaneDiff
 )
 
 // Plugin implements the git status plugin.
@@ -42,7 +50,20 @@ type Plugin struct {
 	// View mode state machine
 	viewMode ViewMode
 
-	// Diff state
+	// Three-pane layout state
+	activePane     FocusPane // Which pane is focused
+	sidebarVisible bool      // Toggle sidebar with Tab
+	sidebarWidth   int       // Calculated width (~30%)
+	diffPaneWidth  int       // Calculated width (~70%)
+	recentCommits  []*Commit // Cached recent commits for sidebar
+
+	// Inline diff state (for three-pane view)
+	selectedDiffFile    string      // File being previewed in diff pane
+	diffPaneScroll      int         // Vertical scroll for inline diff
+	diffPaneHorizScroll int         // Horizontal scroll for inline diff
+	diffPaneParsedDiff  *ParsedDiff // Parsed diff for inline view
+
+	// Diff state (for full-screen diff view)
 	showDiff       bool
 	diffContent    string
 	diffFile       string
@@ -79,7 +100,10 @@ type Plugin struct {
 
 // New creates a new git status plugin.
 func New() *Plugin {
-	return &Plugin{}
+	return &Plugin{
+		sidebarVisible: true,
+		activePane:     PaneSidebar,
+	}
 }
 
 // ID returns the plugin identifier.
@@ -118,6 +142,7 @@ func (p *Plugin) Start() tea.Cmd {
 	return tea.Batch(
 		p.refresh(),
 		p.startWatcher(),
+		p.loadRecentCommits(),
 	)
 }
 
@@ -149,7 +174,14 @@ func (p *Plugin) Update(msg tea.Msg) (plugin.Plugin, tea.Cmd) {
 		return p, p.refresh()
 
 	case WatchEventMsg:
-		return p, p.refresh()
+		return p, tea.Batch(p.refresh(), p.loadRecentCommits())
+
+	case RefreshDoneMsg:
+		// Auto-load diff for first file if nothing selected
+		if p.selectedDiffFile == "" && p.viewMode == ViewModeStatus {
+			return p, p.autoLoadDiff()
+		}
+		return p, nil
 
 	case DiffLoadedMsg:
 		p.diffContent = msg.Content
@@ -184,6 +216,18 @@ func (p *Plugin) Update(msg tea.Msg) (plugin.Plugin, tea.Cmd) {
 		p.commitInProgress = false
 		return p, nil
 
+	case InlineDiffLoadedMsg:
+		// Only update if this is still the selected file
+		if msg.File == p.selectedDiffFile {
+			p.diffPaneParsedDiff = msg.Parsed
+			p.diffPaneScroll = 0
+		}
+		return p, nil
+
+	case RecentCommitsLoadedMsg:
+		p.recentCommits = msg.Commits
+		return p, nil
+
 	case tea.WindowSizeMsg:
 		p.width = msg.Width
 		p.height = msg.Height
@@ -194,6 +238,11 @@ func (p *Plugin) Update(msg tea.Msg) (plugin.Plugin, tea.Cmd) {
 
 // updateStatus handles key events in the status view.
 func (p *Plugin) updateStatus(msg tea.KeyMsg) (plugin.Plugin, tea.Cmd) {
+	// Handle diff pane keys when focused on diff
+	if p.activePane == PaneDiff {
+		return p.updateStatusDiffPane(msg)
+	}
+
 	entries := p.tree.AllEntries()
 
 	switch msg.String() {
@@ -201,22 +250,41 @@ func (p *Plugin) updateStatus(msg tea.KeyMsg) (plugin.Plugin, tea.Cmd) {
 		if p.cursor < len(entries)-1 {
 			p.cursor++
 			p.ensureCursorVisible()
+			return p, p.autoLoadDiff()
 		}
 
 	case "k", "up":
 		if p.cursor > 0 {
 			p.cursor--
 			p.ensureCursorVisible()
+			return p, p.autoLoadDiff()
 		}
 
 	case "g":
 		p.cursor = 0
 		p.scrollOff = 0
+		return p, p.autoLoadDiff()
 
 	case "G":
 		if len(entries) > 0 {
 			p.cursor = len(entries) - 1
 			p.ensureCursorVisible()
+			return p, p.autoLoadDiff()
+		}
+
+	case "l", "right":
+		// Focus diff pane
+		if p.sidebarVisible && p.selectedDiffFile != "" {
+			p.activePane = PaneDiff
+		}
+
+	case "tab":
+		// Toggle sidebar visibility
+		p.sidebarVisible = !p.sidebarVisible
+		if !p.sidebarVisible {
+			p.activePane = PaneDiff
+		} else {
+			p.activePane = PaneSidebar
 		}
 
 	case "s":
@@ -228,15 +296,13 @@ func (p *Plugin) updateStatus(msg tea.KeyMsg) (plugin.Plugin, tea.Cmd) {
 
 				if err := p.tree.StageFile(entry.Path); err == nil {
 					// After staging, move cursor to first unstaged file position
-					// New staged count will be stagedCount + 1
 					newFirstUnstaged := stagedCount + 1
 					if newFirstUnstaged < totalEntries {
 						p.cursor = newFirstUnstaged
 					} else {
-						// All files are now staged, stay at last position
 						p.cursor = totalEntries - 1
 					}
-					return p, p.refresh()
+					return p, tea.Batch(p.refresh(), p.loadRecentCommits())
 				}
 			}
 		}
@@ -246,12 +312,13 @@ func (p *Plugin) updateStatus(msg tea.KeyMsg) (plugin.Plugin, tea.Cmd) {
 			entry := entries[p.cursor]
 			if entry.Staged {
 				if err := p.tree.UnstageFile(entry.Path); err == nil {
-					return p, p.refresh()
+					return p, tea.Batch(p.refresh(), p.loadRecentCommits())
 				}
 			}
 		}
 
 	case "d":
+		// Open full-screen diff view
 		if len(entries) > 0 && p.cursor < len(entries) {
 			entry := entries[p.cursor]
 			p.viewMode = ViewModeDiff
@@ -275,12 +342,12 @@ func (p *Plugin) updateStatus(msg tea.KeyMsg) (plugin.Plugin, tea.Cmd) {
 		return p, p.loadHistory()
 
 	case "r":
-		return p, p.refresh()
+		return p, tea.Batch(p.refresh(), p.loadRecentCommits())
 
 	case "S":
 		// Stage all files
 		if err := p.tree.StageAll(); err == nil {
-			return p, p.refresh()
+			return p, tea.Batch(p.refresh(), p.loadRecentCommits())
 		}
 
 	case "c":
@@ -293,6 +360,141 @@ func (p *Plugin) updateStatus(msg tea.KeyMsg) (plugin.Plugin, tea.Cmd) {
 	}
 
 	return p, nil
+}
+
+// updateStatusDiffPane handles key events when the diff pane is focused.
+func (p *Plugin) updateStatusDiffPane(msg tea.KeyMsg) (plugin.Plugin, tea.Cmd) {
+	switch msg.String() {
+	case "h", "esc":
+		// Return to sidebar (h is overloaded for left scroll when not at start)
+		if p.diffPaneHorizScroll > 0 {
+			p.diffPaneHorizScroll -= 10
+			if p.diffPaneHorizScroll < 0 {
+				p.diffPaneHorizScroll = 0
+			}
+		} else {
+			p.activePane = PaneSidebar
+		}
+
+	case "left":
+		// Horizontal scroll left
+		if p.diffPaneHorizScroll > 0 {
+			p.diffPaneHorizScroll -= 10
+			if p.diffPaneHorizScroll < 0 {
+				p.diffPaneHorizScroll = 0
+			}
+		}
+
+	case "l", "right":
+		// Horizontal scroll right
+		p.diffPaneHorizScroll += 10
+
+	case "j", "down":
+		p.diffPaneScroll++
+
+	case "k", "up":
+		if p.diffPaneScroll > 0 {
+			p.diffPaneScroll--
+		}
+
+	case "g":
+		p.diffPaneScroll = 0
+		p.diffPaneHorizScroll = 0
+
+	case "G":
+		if p.diffPaneParsedDiff != nil {
+			lines := countParsedDiffLines(p.diffPaneParsedDiff)
+			maxScroll := lines - (p.height - 6)
+			if maxScroll > 0 {
+				p.diffPaneScroll = maxScroll
+			}
+		}
+
+	case "ctrl+d":
+		p.diffPaneScroll += 10
+		// Clamp to max
+		if p.diffPaneParsedDiff != nil {
+			lines := countParsedDiffLines(p.diffPaneParsedDiff)
+			maxScroll := lines - (p.height - 6)
+			if maxScroll < 0 {
+				maxScroll = 0
+			}
+			if p.diffPaneScroll > maxScroll {
+				p.diffPaneScroll = maxScroll
+			}
+		}
+
+	case "ctrl+u":
+		p.diffPaneScroll -= 10
+		if p.diffPaneScroll < 0 {
+			p.diffPaneScroll = 0
+		}
+
+	case "0":
+		// Reset horizontal scroll
+		p.diffPaneHorizScroll = 0
+
+	case "v":
+		// Toggle view mode (unified/side-by-side) - affects all diff views
+		if p.diffViewMode == DiffViewUnified {
+			p.diffViewMode = DiffViewSideBySide
+		} else {
+			p.diffViewMode = DiffViewUnified
+		}
+
+	case "tab":
+		// Toggle sidebar visibility
+		p.sidebarVisible = !p.sidebarVisible
+		if p.sidebarVisible {
+			p.activePane = PaneSidebar
+		}
+
+	case "d":
+		// Open full-screen diff view for current file
+		entries := p.tree.AllEntries()
+		if len(entries) > 0 && p.cursor < len(entries) {
+			entry := entries[p.cursor]
+			p.viewMode = ViewModeDiff
+			p.diffFile = entry.Path
+			p.diffCommit = ""
+			p.diffScroll = 0
+			return p, p.loadDiff(entry.Path, entry.Staged)
+		}
+	}
+
+	return p, nil
+}
+
+// autoLoadDiff triggers loading the diff for the currently selected file.
+func (p *Plugin) autoLoadDiff() tea.Cmd {
+	entries := p.tree.AllEntries()
+	if len(entries) == 0 || p.cursor >= len(entries) {
+		p.selectedDiffFile = ""
+		p.diffPaneParsedDiff = nil
+		return nil
+	}
+
+	entry := entries[p.cursor]
+	if entry.Path == p.selectedDiffFile {
+		return nil // Already loaded
+	}
+
+	p.selectedDiffFile = entry.Path
+	p.diffPaneParsedDiff = nil
+	p.diffPaneScroll = 0
+	return p.loadInlineDiff(entry.Path, entry.Staged)
+}
+
+// countParsedDiffLines counts total lines in a parsed diff.
+func countParsedDiffLines(diff *ParsedDiff) int {
+	if diff == nil {
+		return 0
+	}
+	count := 0
+	for _, hunk := range diff.Hunks {
+		count += len(hunk.Lines) + 1 // +1 for hunk header
+	}
+	return count
 }
 
 // updateHistory handles key events in the history view.
@@ -453,18 +655,23 @@ func (p *Plugin) View(width, height int) string {
 	p.width = width
 	p.height = height
 
+	var content string
 	switch p.viewMode {
 	case ViewModeHistory:
-		return p.renderHistory()
+		content = p.renderHistory()
 	case ViewModeCommitDetail:
-		return p.renderCommitDetail()
+		content = p.renderCommitDetail()
 	case ViewModeDiff:
-		return p.renderDiffModal()
+		content = p.renderDiffModal()
 	case ViewModeCommit:
-		return p.renderCommit()
+		content = p.renderCommit()
 	default:
-		return p.renderMain()
+		// Use three-pane layout for status view
+		content = p.renderThreePaneView()
 	}
+
+	// Constrain output to allocated height to prevent header scrolling off-screen
+	return lipgloss.NewStyle().Width(width).Height(height).Render(content)
 }
 
 // IsFocused returns whether the plugin is focused.
@@ -476,18 +683,18 @@ func (p *Plugin) SetFocused(f bool) { p.focused = f }
 // Commands returns the available commands.
 func (p *Plugin) Commands() []plugin.Command {
 	return []plugin.Command{
-		{ID: "stage-file", Name: "Stage file", Context: "git-status"},
-		{ID: "unstage-file", Name: "Unstage file", Context: "git-status"},
+		{ID: "stage-file", Name: "Stage", Context: "git-status"},
+		{ID: "unstage-file", Name: "Unstage", Context: "git-status"},
 		{ID: "stage-all", Name: "Stage all", Context: "git-status"},
 		{ID: "commit", Name: "Commit", Context: "git-status"},
-		{ID: "show-diff", Name: "Show diff", Context: "git-status"},
-		{ID: "show-history", Name: "Show history", Context: "git-status"},
-		{ID: "open-file", Name: "Open file", Context: "git-status"},
+		{ID: "show-diff", Name: "Diff", Context: "git-status"},
+		{ID: "show-history", Name: "History", Context: "git-status"},
+		{ID: "open-file", Name: "Open", Context: "git-status"},
 		{ID: "back", Name: "Back", Context: "git-history"},
-		{ID: "view-commit", Name: "View commit", Context: "git-history"},
+		{ID: "view-commit", Name: "View", Context: "git-history"},
 		{ID: "back", Name: "Back", Context: "git-commit-detail"},
-		{ID: "view-diff", Name: "View diff", Context: "git-commit-detail"},
-		{ID: "close-diff", Name: "Close diff", Context: "git-diff"},
+		{ID: "view-diff", Name: "Diff", Context: "git-commit-detail"},
+		{ID: "close-diff", Name: "Close", Context: "git-diff"},
 		{ID: "scroll", Name: "Scroll", Context: "git-diff"},
 		{ID: "cancel", Name: "Cancel", Context: "git-commit"},
 		{ID: "execute-commit", Name: "Commit", Context: "git-commit"},
@@ -506,6 +713,9 @@ func (p *Plugin) FocusContext() string {
 	case ViewModeCommit:
 		return "git-commit"
 	default:
+		if p.activePane == PaneDiff {
+			return "git-status-diff"
+		}
 		return "git-status"
 	}
 }
@@ -627,6 +837,18 @@ type CommitErrorMsg struct {
 	Err error
 }
 
+// InlineDiffLoadedMsg is sent when an inline diff finishes loading.
+type InlineDiffLoadedMsg struct {
+	File    string
+	Raw     string
+	Parsed  *ParsedDiff
+}
+
+// RecentCommitsLoadedMsg is sent when recent commits are loaded for sidebar.
+type RecentCommitsLoadedMsg struct {
+	Commits []*Commit
+}
+
 // loadHistory loads commit history.
 func (p *Plugin) loadHistory() tea.Cmd {
 	return func() tea.Msg {
@@ -635,6 +857,31 @@ func (p *Plugin) loadHistory() tea.Cmd {
 			return ErrorMsg{Err: err}
 		}
 		return HistoryLoadedMsg{Commits: commits}
+	}
+}
+
+// loadInlineDiff loads a diff for inline preview in the three-pane view.
+func (p *Plugin) loadInlineDiff(path string, staged bool) tea.Cmd {
+	workDir := p.ctx.WorkDir
+	return func() tea.Msg {
+		rawDiff, err := GetDiff(workDir, path, staged)
+		if err != nil {
+			return InlineDiffLoadedMsg{File: path, Raw: "", Parsed: nil}
+		}
+		parsed, _ := ParseUnifiedDiff(rawDiff)
+		return InlineDiffLoadedMsg{File: path, Raw: rawDiff, Parsed: parsed}
+	}
+}
+
+// loadRecentCommits loads recent commits for the sidebar.
+func (p *Plugin) loadRecentCommits() tea.Cmd {
+	workDir := p.ctx.WorkDir
+	return func() tea.Msg {
+		commits, err := GetCommitHistory(workDir, 8)
+		if err != nil {
+			return RecentCommitsLoadedMsg{Commits: nil}
+		}
+		return RecentCommitsLoadedMsg{Commits: commits}
 	}
 }
 

@@ -119,9 +119,6 @@ func (m Model) renderContent(width, height int) string {
 
 // renderFooter renders the bottom bar with key hints and status.
 func (m Model) renderFooter() string {
-	// Key hints (context-aware)
-	hintsStr := renderHintLine(m.footerHints())
-
 	// Toast/status message
 	var status string
 	if m.ui.HasToast() {
@@ -133,10 +130,17 @@ func (m Model) renderFooter() string {
 	// Last refresh
 	refresh := styles.Muted.Render(fmt.Sprintf("↻ %s", m.ui.LastRefresh.Format("15:04:05")))
 
-	// Calculate spacing
-	hintsWidth := lipgloss.Width(hintsStr)
+	// Calculate available width for hints (leave room for status, refresh, and spacing)
 	statusWidth := lipgloss.Width(status)
 	refreshWidth := lipgloss.Width(refresh)
+	minSpacing := 4 // Minimum spacing between elements
+	availableForHints := m.width - statusWidth - refreshWidth - minSpacing
+
+	// Key hints (context-aware) - truncate to fit
+	hintsStr := renderHintLineTruncated(m.footerHints(), availableForHints)
+
+	// Calculate spacing
+	hintsWidth := lipgloss.Width(hintsStr)
 	spacing := m.width - hintsWidth - statusWidth - refreshWidth
 
 	if spacing < 0 {
@@ -145,7 +149,8 @@ func (m Model) renderFooter() string {
 
 	footer := hintsStr + strings.Repeat(" ", spacing/2) + status + strings.Repeat(" ", spacing-(spacing/2)) + refresh
 
-	return styles.Footer.Width(m.width).Render(footer)
+	// Use MaxWidth to prevent wrapping and ensure single line
+	return styles.Footer.Width(m.width).MaxWidth(m.width).Render(footer)
 }
 
 type footerHint struct {
@@ -229,6 +234,32 @@ func renderHintLine(hints []footerHint) string {
 		parts = append(parts, fmt.Sprintf("%s %s", styles.KeyHint.Render(hint.keys), hint.label))
 	}
 	return strings.Join(parts, "  ")
+}
+
+// renderHintLineTruncated renders hints but stops adding when maxWidth is exceeded.
+func renderHintLineTruncated(hints []footerHint, maxWidth int) string {
+	if len(hints) == 0 || maxWidth <= 0 {
+		return ""
+	}
+	var result string
+	separator := "  "
+	for i, hint := range hints {
+		if hint.keys == "" || hint.label == "" {
+			continue
+		}
+		part := fmt.Sprintf("%s %s", styles.KeyHint.Render(hint.keys), hint.label)
+		var candidate string
+		if i == 0 {
+			candidate = part
+		} else {
+			candidate = result + separator + part
+		}
+		if lipgloss.Width(candidate) > maxWidth {
+			break // Stop adding hints if we exceed available width
+		}
+		result = candidate
+	}
+	return result
 }
 
 // renderHelpOverlay renders the help modal over content.

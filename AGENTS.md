@@ -33,3 +33,28 @@ Maintain consistent keybindings across plugins for familiar UX:
 - `G` - go to bottom [file browser ✓, git diff ✓]
 
 See td-331dbf19 for diff paging implementation.
+
+## Plugin View Rendering
+
+**Critical: Always constrain plugin output height.** The app's header/footer are always visible - plugins must not exceed their allocated height or the header will scroll off-screen.
+
+In `View(width, height int)`:
+1. Store dimensions: `p.width, p.height = width, height`
+2. Calculate internal layout respecting `height` (e.g., `contentHeight := height - headerLines - footerLines`)
+3. Either use `lipgloss.Height(height).Render(content)` to enforce height, or manually limit rendered lines
+4. Never rely on the app to truncate - it wraps with Height() but edge cases cause rendering bugs
+
+This bug manifests as "top bar disappears" after state transitions (commits, refreshes, mode switches).
+
+## Footer Hints
+
+**Do NOT render footers in plugin View().** The app renders a unified footer bar using `plugin.Commands()` and keymap bindings. Plugins should:
+1. Define commands with short names in `Commands()` method
+2. Never render their own footer/hint line - this creates duplicate footers
+
+Keep command names short (1 word preferred) to prevent footer wrapping:
+- "Stage" not "Stage file"
+- "Diff" not "Show diff"
+- "History" not "Show history"
+
+The footer auto-truncates hints that exceed available width.

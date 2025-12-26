@@ -46,7 +46,8 @@ var (
 )
 
 // RenderLineDiff renders a parsed diff in unified line-by-line format with line numbers.
-func RenderLineDiff(diff *ParsedDiff, width, startLine, maxLines int) string {
+// horizontalOffset scrolls the content horizontally (0 = no scroll).
+func RenderLineDiff(diff *ParsedDiff, width, startLine, maxLines, horizontalOffset int) string {
 	if diff == nil || diff.Binary {
 		if diff != nil && diff.Binary {
 			return styles.Muted.Render(" Binary file differs")
@@ -121,8 +122,8 @@ func RenderLineDiff(diff *ParsedDiff, width, startLine, maxLines int) string {
 				lineNoStyle.Render(oldNo),
 				lineNoStyle.Render(newNo))
 
-			// Render content with appropriate style
-			content := renderDiffContent(line, contentWidth)
+			// Render content with appropriate style and horizontal offset
+			content := renderDiffContentWithOffset(line, contentWidth, horizontalOffset)
 
 			sb.WriteString(lineNos)
 			sb.WriteString(content)
@@ -300,6 +301,28 @@ func groupLinesForSideBySide(lines []DiffLine) []linePair {
 	}
 
 	return pairs
+}
+
+// renderDiffContentWithOffset renders line content with horizontal scroll and word-level highlighting.
+func renderDiffContentWithOffset(line DiffLine, maxWidth, horizontalOffset int) string {
+	// Apply horizontal offset first
+	content := line.Content
+	if horizontalOffset > 0 {
+		if horizontalOffset >= len(content) {
+			content = ""
+		} else {
+			content = content[horizontalOffset:]
+		}
+		// Create a modified line with offset content
+		line = DiffLine{
+			Type:      line.Type,
+			Content:   content,
+			OldLineNo: line.OldLineNo,
+			NewLineNo: line.NewLineNo,
+			WordDiff:  nil, // Word diff doesn't work well with offset
+		}
+	}
+	return renderDiffContent(line, maxWidth)
 }
 
 // renderDiffContent renders line content with word-level highlighting.

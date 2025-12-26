@@ -214,7 +214,7 @@ func (p *Plugin) renderDiffModal() string {
 			if useDelta && p.diffContent != p.diffRaw {
 				displayContent = p.diffContent
 			} else if p.parsedDiff != nil {
-				sb.WriteString(RenderLineDiff(p.parsedDiff, p.width, p.diffScroll, visibleLines))
+				sb.WriteString(RenderLineDiff(p.parsedDiff, p.width, p.diffScroll, visibleLines, p.diffHorizOff))
 				return sb.String()
 			} else {
 				displayContent = p.diffRaw

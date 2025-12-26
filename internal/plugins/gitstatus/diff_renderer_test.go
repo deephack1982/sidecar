@@ -6,7 +6,7 @@ import (
 )
 
 func TestRenderLineDiff_EmptyDiff(t *testing.T) {
-	result := RenderLineDiff(nil, 80, 0, 20)
+	result := RenderLineDiff(nil, 80, 0, 20, 0)
 	if !strings.Contains(result, "No diff content") {
 		t.Error("expected 'No diff content' message for nil diff")
 	}
@@ -14,7 +14,7 @@ func TestRenderLineDiff_EmptyDiff(t *testing.T) {
 
 func TestRenderLineDiff_BinaryFile(t *testing.T) {
 	diff := &ParsedDiff{Binary: true}
-	result := RenderLineDiff(diff, 80, 0, 20)
+	result := RenderLineDiff(diff, 80, 0, 20, 0)
 	if !strings.Contains(result, "Binary") {
 		t.Error("expected 'Binary' message for binary diff")
 	}
@@ -39,7 +39,7 @@ func TestRenderLineDiff_BasicOutput(t *testing.T) {
 		},
 	}
 
-	result := RenderLineDiff(diff, 80, 0, 20)
+	result := RenderLineDiff(diff, 80, 0, 20, 0)
 
 	if result == "" {
 		t.Error("RenderLineDiff returned empty string")
