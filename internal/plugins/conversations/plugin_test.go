@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/sst/sidecar/internal/adapter"
 )
 
@@ -565,3 +566,391 @@ func (m *mockAdapter) Sessions(projectRoot string) ([]adapter.Session, error) { 
 func (m *mockAdapter) Messages(sessionID string) ([]adapter.Message, error)   { return nil, nil }
 func (m *mockAdapter) Usage(sessionID string) (*adapter.UsageStats, error)    { return nil, nil }
 func (m *mockAdapter) Watch(projectRoot string) (<-chan adapter.Event, error) { return nil, nil }
+
+// =============================================================================
+// Search Key Handling Tests via Update()
+// =============================================================================
+
+// TestUpdateSearchModeEnter tests entering search mode with '/' key.
+func TestUpdateSearchModeEnter(t *testing.T) {
+	p := New()
+	p.adapter = &mockAdapter{}
+	p.sessions = []adapter.Session{
+		{ID: "test-1", Name: "alpha"},
+		{ID: "test-2", Name: "beta"},
+	}
+	p.cursor = 1 // Set cursor to non-zero
+
+	if p.searchMode {
+		t.Fatal("expected searchMode to be false initially")
+	}
+
+	// Press '/' to enter search mode
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'/'}}
+	_, _ = p.Update(msg)
+
+	if !p.searchMode {
+		t.Error("expected searchMode to be true after pressing '/'")
+	}
+	if p.searchQuery != "" {
+		t.Errorf("expected empty searchQuery, got %q", p.searchQuery)
+	}
+	if p.cursor != 0 {
+		t.Errorf("expected cursor to reset to 0, got %d", p.cursor)
+	}
+	if p.scrollOff != 0 {
+		t.Errorf("expected scrollOff to reset to 0, got %d", p.scrollOff)
+	}
+}
+
+// TestUpdateSearchModeExit tests exiting search mode with 'esc' key.
+func TestUpdateSearchModeExit(t *testing.T) {
+	p := New()
+	p.adapter = &mockAdapter{}
+	p.sessions = []adapter.Session{
+		{ID: "test-1", Name: "alpha"},
+		{ID: "test-2", Name: "beta"},
+	}
+	p.searchMode = true
+	p.searchQuery = "test"
+	p.searchResults = []adapter.Session{{ID: "test-1"}}
+	p.cursor = 1
+
+	// Press 'esc' to exit search mode
+	msg := tea.KeyMsg{Type: tea.KeyEsc}
+	_, _ = p.Update(msg)
+
+	if p.searchMode {
+		t.Error("expected searchMode to be false after pressing 'esc'")
+	}
+	if p.searchQuery != "" {
+		t.Errorf("expected searchQuery to be cleared, got %q", p.searchQuery)
+	}
+	if p.searchResults != nil {
+		t.Error("expected searchResults to be nil")
+	}
+	if p.cursor != 0 {
+		t.Errorf("expected cursor to reset to 0, got %d", p.cursor)
+	}
+}
+
+// TestUpdateSearchTypingCharacters tests typing characters to build searchQuery.
+func TestUpdateSearchTypingCharacters(t *testing.T) {
+	p := New()
+	p.adapter = &mockAdapter{}
+	p.sessions = []adapter.Session{
+		{ID: "test-1", Name: "alpha"},
+		{ID: "test-2", Name: "beta"},
+		{ID: "test-3", Name: "gamma"},
+	}
+	p.searchMode = true
+
+	// Type 'a'
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}}
+	_, _ = p.Update(msg)
+
+	if p.searchQuery != "a" {
+		t.Errorf("expected searchQuery 'a', got %q", p.searchQuery)
+	}
+
+	// Type 'l'
+	msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}}
+	_, _ = p.Update(msg)
+
+	if p.searchQuery != "al" {
+		t.Errorf("expected searchQuery 'al', got %q", p.searchQuery)
+	}
+
+	// Type 'p'
+	msg = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}}
+	_, _ = p.Update(msg)
+
+	if p.searchQuery != "alp" {
+		t.Errorf("expected searchQuery 'alp', got %q", p.searchQuery)
+	}
+
+	// Verify filtering occurred (should match "alpha")
+	if len(p.searchResults) != 1 {
+		t.Errorf("expected 1 search result, got %d", len(p.searchResults))
+	}
+	if len(p.searchResults) > 0 && p.searchResults[0].Name != "alpha" {
+		t.Errorf("expected result 'alpha', got %q", p.searchResults[0].Name)
+	}
+}
+
+// TestUpdateSearchBackspace tests backspace deleting from searchQuery.
+func TestUpdateSearchBackspace(t *testing.T) {
+	p := New()
+	p.adapter = &mockAdapter{}
+	p.sessions = []adapter.Session{
+		{ID: "test-1", Name: "alpha"},
+		{ID: "test-2", Name: "beta"},
+	}
+	p.searchMode = true
+	p.searchQuery = "alph"
+	p.filterSessions() // Initialize searchResults
+
+	// Press backspace
+	msg := tea.KeyMsg{Type: tea.KeyBackspace}
+	_, _ = p.Update(msg)
+
+	if p.searchQuery != "alp" {
+		t.Errorf("expected searchQuery 'alp', got %q", p.searchQuery)
+	}
+
+	// Press backspace again
+	_, _ = p.Update(msg)
+
+	if p.searchQuery != "al" {
+		t.Errorf("expected searchQuery 'al', got %q", p.searchQuery)
+	}
+
+	// Press backspace until empty
+	_, _ = p.Update(msg)
+	_, _ = p.Update(msg)
+
+	if p.searchQuery != "" {
+		t.Errorf("expected empty searchQuery, got %q", p.searchQuery)
+	}
+
+	// Backspace on empty query should do nothing
+	_, _ = p.Update(msg)
+
+	if p.searchQuery != "" {
+		t.Errorf("expected searchQuery to remain empty, got %q", p.searchQuery)
+	}
+}
+
+// TestUpdateSearchNavigationDown tests down navigation in search results.
+func TestUpdateSearchNavigationDown(t *testing.T) {
+	p := New()
+	p.adapter = &mockAdapter{}
+	p.sessions = []adapter.Session{
+		{ID: "test-1", Name: "alpha"},
+		{ID: "test-2", Name: "also-alpha"},
+		{ID: "test-3", Name: "another-alpha"},
+	}
+	p.searchMode = true
+	p.searchQuery = "alpha"
+	p.filterSessions()
+	p.height = 20 // Set height for scroll calculations
+
+	if p.cursor != 0 {
+		t.Fatalf("expected initial cursor 0, got %d", p.cursor)
+	}
+
+	// Press down arrow
+	msg := tea.KeyMsg{Type: tea.KeyDown}
+	_, _ = p.Update(msg)
+
+	if p.cursor != 1 {
+		t.Errorf("expected cursor 1 after down, got %d", p.cursor)
+	}
+
+	// Press down again
+	_, _ = p.Update(msg)
+
+	if p.cursor != 2 {
+		t.Errorf("expected cursor 2 after second down, got %d", p.cursor)
+	}
+
+	// Press down at end (should stay at end)
+	_, _ = p.Update(msg)
+
+	if p.cursor != 2 {
+		t.Errorf("expected cursor to stay at 2, got %d", p.cursor)
+	}
+}
+
+// TestUpdateSearchNavigationUp tests up navigation in search results.
+func TestUpdateSearchNavigationUp(t *testing.T) {
+	p := New()
+	p.adapter = &mockAdapter{}
+	p.sessions = []adapter.Session{
+		{ID: "test-1", Name: "alpha"},
+		{ID: "test-2", Name: "also-alpha"},
+		{ID: "test-3", Name: "another-alpha"},
+	}
+	p.searchMode = true
+	p.searchQuery = "alpha"
+	p.filterSessions()
+	p.cursor = 2 // Start at last item
+	p.height = 20
+
+	// Press up arrow
+	msg := tea.KeyMsg{Type: tea.KeyUp}
+	_, _ = p.Update(msg)
+
+	if p.cursor != 1 {
+		t.Errorf("expected cursor 1 after up, got %d", p.cursor)
+	}
+
+	// Press up again
+	_, _ = p.Update(msg)
+
+	if p.cursor != 0 {
+		t.Errorf("expected cursor 0 after second up, got %d", p.cursor)
+	}
+
+	// Press up at top (should stay at 0)
+	_, _ = p.Update(msg)
+
+	if p.cursor != 0 {
+		t.Errorf("expected cursor to stay at 0, got %d", p.cursor)
+	}
+}
+
+// TestUpdateSearchNavigationCtrlN tests ctrl+n navigation in search results.
+func TestUpdateSearchNavigationCtrlN(t *testing.T) {
+	p := New()
+	p.adapter = &mockAdapter{}
+	p.sessions = []adapter.Session{
+		{ID: "test-1", Name: "alpha"},
+		{ID: "test-2", Name: "also-alpha"},
+	}
+	p.searchMode = true
+	p.searchQuery = "alpha"
+	p.filterSessions()
+	p.height = 20
+
+	// Press ctrl+n (should move down)
+	msg := tea.KeyMsg{Type: tea.KeyCtrlN}
+	_, _ = p.Update(msg)
+
+	if p.cursor != 1 {
+		t.Errorf("expected cursor 1 after ctrl+n, got %d", p.cursor)
+	}
+}
+
+// TestUpdateSearchNavigationCtrlP tests ctrl+p navigation in search results.
+func TestUpdateSearchNavigationCtrlP(t *testing.T) {
+	p := New()
+	p.adapter = &mockAdapter{}
+	p.sessions = []adapter.Session{
+		{ID: "test-1", Name: "alpha"},
+		{ID: "test-2", Name: "also-alpha"},
+	}
+	p.searchMode = true
+	p.searchQuery = "alpha"
+	p.filterSessions()
+	p.cursor = 1 // Start at second item
+	p.height = 20
+
+	// Press ctrl+p (should move up)
+	msg := tea.KeyMsg{Type: tea.KeyCtrlP}
+	_, _ = p.Update(msg)
+
+	if p.cursor != 0 {
+		t.Errorf("expected cursor 0 after ctrl+p, got %d", p.cursor)
+	}
+}
+
+// TestUpdateSearchEnterSelectsSession tests enter key selects session in search mode.
+func TestUpdateSearchEnterSelectsSession(t *testing.T) {
+	p := New()
+	p.adapter = &mockAdapter{}
+	p.sessions = []adapter.Session{
+		{ID: "test-1", Name: "alpha"},
+		{ID: "test-2", Name: "beta"},
+	}
+	p.searchMode = true
+	p.searchQuery = "beta"
+	p.filterSessions()
+	p.height = 20
+
+	if len(p.searchResults) != 1 {
+		t.Fatalf("expected 1 search result, got %d", len(p.searchResults))
+	}
+
+	// Press enter to select
+	msg := tea.KeyMsg{Type: tea.KeyEnter}
+	_, cmd := p.Update(msg)
+
+	if p.searchMode {
+		t.Error("expected searchMode to be false after enter")
+	}
+	if p.view != ViewMessages {
+		t.Errorf("expected view to be ViewMessages, got %d", p.view)
+	}
+	if p.selectedSession != "test-2" {
+		t.Errorf("expected selectedSession 'test-2', got %q", p.selectedSession)
+	}
+	if cmd == nil {
+		t.Error("expected non-nil command to load messages")
+	}
+}
+
+// TestUpdateSearchCursorResetOnQuery tests cursor resets when query changes.
+func TestUpdateSearchCursorResetOnQuery(t *testing.T) {
+	p := New()
+	p.adapter = &mockAdapter{}
+	p.sessions = []adapter.Session{
+		{ID: "test-1", Name: "alpha"},
+		{ID: "test-2", Name: "also-alpha"},
+		{ID: "test-3", Name: "beta"},
+	}
+	p.searchMode = true
+	p.searchQuery = "a"
+	p.filterSessions()
+	p.cursor = 1 // Move cursor to second result
+	p.height = 20
+
+	// Type another character - cursor should reset
+	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'l'}}
+	_, _ = p.Update(msg)
+
+	if p.cursor != 0 {
+		t.Errorf("expected cursor to reset to 0, got %d", p.cursor)
+	}
+
+	// Move cursor again
+	p.cursor = 1
+
+	// Backspace should also reset cursor
+	msg = tea.KeyMsg{Type: tea.KeyBackspace}
+	_, _ = p.Update(msg)
+
+	if p.cursor != 0 {
+		t.Errorf("expected cursor to reset to 0 after backspace, got %d", p.cursor)
+	}
+}
+
+// TestUpdateSearchEmptyResults tests behavior with no matching results.
+func TestUpdateSearchEmptyResults(t *testing.T) {
+	p := New()
+	p.adapter = &mockAdapter{}
+	p.sessions = []adapter.Session{
+		{ID: "test-1", Name: "alpha"},
+		{ID: "test-2", Name: "beta"},
+	}
+	p.searchMode = true
+	p.height = 20
+
+	// Type query that matches nothing
+	for _, r := range "xyz" {
+		msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}}
+		_, _ = p.Update(msg)
+	}
+
+	if p.searchQuery != "xyz" {
+		t.Errorf("expected searchQuery 'xyz', got %q", p.searchQuery)
+	}
+	if len(p.searchResults) != 0 {
+		t.Errorf("expected 0 results, got %d", len(p.searchResults))
+	}
+
+	// Navigation should not panic with empty results
+	msg := tea.KeyMsg{Type: tea.KeyDown}
+	_, _ = p.Update(msg) // Should not panic
+
+	msg = tea.KeyMsg{Type: tea.KeyUp}
+	_, _ = p.Update(msg) // Should not panic
+
+	// Enter should do nothing with empty results
+	msg = tea.KeyMsg{Type: tea.KeyEnter}
+	_, _ = p.Update(msg)
+
+	if p.view != ViewSessions {
+		t.Error("expected to stay in sessions view with empty results")
+	}
+}
