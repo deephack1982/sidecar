@@ -238,3 +238,129 @@ func TestDiffViewMode_Constants(t *testing.T) {
 		t.Error("DiffViewUnified and DiffViewSideBySide should be different")
 	}
 }
+
+func TestRenderLineDiff_WithHorizontalOffset(t *testing.T) {
+	diff := &ParsedDiff{
+		OldFile: "test.go",
+		NewFile: "test.go",
+		Hunks: []Hunk{
+			{
+				OldStart: 1,
+				OldCount: 1,
+				NewStart: 1,
+				NewCount: 1,
+				Lines: []DiffLine{
+					{Type: LineAdd, OldLineNo: 0, NewLineNo: 1, Content: "0123456789ABCDEFGHIJ"},
+				},
+			},
+		},
+	}
+
+	// Without offset - should show full content
+	result0 := RenderLineDiff(diff, 80, 0, 20, 0)
+	if !strings.Contains(result0, "0123456789") {
+		t.Error("expected full content when offset=0")
+	}
+
+	// With offset=5 - should skip first 5 chars
+	result5 := RenderLineDiff(diff, 80, 0, 20, 5)
+	if strings.Contains(result5, "01234") {
+		t.Error("offset=5 should hide first 5 chars")
+	}
+	if !strings.Contains(result5, "56789") {
+		t.Error("offset=5 should show chars starting at position 5")
+	}
+
+	// With very large offset - should handle gracefully
+	result100 := RenderLineDiff(diff, 80, 0, 20, 100)
+	if result100 == "" {
+		t.Error("large offset should not crash, should return something")
+	}
+}
+
+func TestRenderSideBySide_WithHorizontalOffset(t *testing.T) {
+	diff := &ParsedDiff{
+		OldFile: "test.go",
+		NewFile: "test.go",
+		Hunks: []Hunk{
+			{
+				OldStart: 1,
+				OldCount: 1,
+				NewStart: 1,
+				NewCount: 1,
+				Lines: []DiffLine{
+					{Type: LineRemove, OldLineNo: 1, NewLineNo: 0, Content: "OLDCONTENT0123456789"},
+					{Type: LineAdd, OldLineNo: 0, NewLineNo: 1, Content: "NEWCONTENT0123456789"},
+				},
+			},
+		},
+	}
+
+	// Without offset
+	result0 := RenderSideBySide(diff, 120, 0, 20, 0)
+	if !strings.Contains(result0, "OLD") {
+		t.Error("expected OLD prefix when offset=0")
+	}
+
+	// With offset=3 - should skip first 3 chars
+	result3 := RenderSideBySide(diff, 120, 0, 20, 3)
+	if strings.Contains(result3, "OLD") || strings.Contains(result3, "NEW") {
+		t.Error("offset=3 should hide first 3 chars of each side")
+	}
+}
+
+func TestRenderDiffContentWithOffset_DisablesWordDiff(t *testing.T) {
+	// Line with word diff data
+	line := DiffLine{
+		Type:      LineAdd,
+		Content:   "hello world test",
+		OldLineNo: 0,
+		NewLineNo: 1,
+		WordDiff: []WordSegment{
+			{Text: "hello ", IsChange: false},
+			{Text: "world", IsChange: true},
+			{Text: " test", IsChange: false},
+		},
+	}
+
+	// With offset=0, word diff should be preserved (handled in renderDiffContent)
+	result0 := renderDiffContentWithOffset(line, 80, 0)
+	if result0 == "" {
+		t.Error("expected non-empty result")
+	}
+
+	// With offset>0, word diff should be disabled (set to nil internally)
+	result5 := renderDiffContentWithOffset(line, 80, 5)
+	if result5 == "" {
+		t.Error("expected non-empty result with offset")
+	}
+	// Content should be offset
+	if strings.Contains(result5, "hello") {
+		t.Error("offset=5 should skip 'hello'")
+	}
+}
+
+func TestApplyHorizontalOffset_EdgeCases(t *testing.T) {
+	tests := []struct {
+		name   string
+		input  string
+		offset int
+		want   string
+	}{
+		{"negative offset", "hello", -5, "hello"},
+		{"zero offset", "hello", 0, "hello"},
+		{"exact length", "hello", 5, ""},
+		{"beyond length", "hello", 10, ""},
+		{"empty string", "", 5, ""},
+		// Note: function operates on bytes, not runes, so unicode chars are not handled specially
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := applyHorizontalOffset(tc.input, tc.offset)
+			if got != tc.want {
+				t.Errorf("applyHorizontalOffset(%q, %d) = %q, want %q", tc.input, tc.offset, got, tc.want)
+			}
+		})
+	}
+}

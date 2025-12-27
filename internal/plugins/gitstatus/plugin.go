@@ -365,8 +365,12 @@ func (p *Plugin) updateStatus(msg tea.KeyMsg) (plugin.Plugin, tea.Cmd) {
 // updateStatusDiffPane handles key events when the diff pane is focused.
 func (p *Plugin) updateStatusDiffPane(msg tea.KeyMsg) (plugin.Plugin, tea.Cmd) {
 	switch msg.String() {
-	case "h", "esc":
-		// Return to sidebar (h is overloaded for left scroll when not at start)
+	case "esc":
+		// ESC always returns to sidebar
+		p.activePane = PaneSidebar
+
+	case "h":
+		// h scrolls left if scrolled, otherwise returns to sidebar
 		if p.diffPaneHorizScroll > 0 {
 			p.diffPaneHorizScroll -= 10
 			if p.diffPaneHorizScroll < 0 {
