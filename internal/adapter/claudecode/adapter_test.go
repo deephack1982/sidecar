@@ -274,3 +274,188 @@ func TestShortID(t *testing.T) {
 		}
 	}
 }
+
+// copyTestdataFile copies a testdata file to the target path
+func copyTestdataFile(t *testing.T, testdataFile, targetPath string) {
+	t.Helper()
+	data, err := os.ReadFile(testdataFile)
+	if err != nil {
+		t.Fatalf("failed to read testdata file: %v", err)
+	}
+	if err := os.WriteFile(targetPath, data, 0644); err != nil {
+		t.Fatalf("failed to write file: %v", err)
+	}
+}
+
+func TestSlugExtraction(t *testing.T) {
+	// Create temp dir mimicking ~/.claude/projects/{hash}/
+	tmpDir := t.TempDir()
+
+	// Create adapter with custom projects dir
+	a := &Adapter{projectsDir: tmpDir}
+
+	// Create project hash dir (simulates -home-user-project)
+	projectHash := "-test-project"
+	projectDir := tmpDir + "/" + projectHash
+	if err := os.MkdirAll(projectDir, 0755); err != nil {
+		t.Fatalf("failed to create project dir: %v", err)
+	}
+
+	// Copy testdata file with slug
+	testdataPath := "testdata/valid_session_with_slug.jsonl"
+	targetPath := projectDir + "/test-session-slug.jsonl"
+	copyTestdataFile(t, testdataPath, targetPath)
+
+	// Set projectsDir to point to our temp structure
+	// The adapter uses projectDirPath which adds the hash, so we need to
+	// directly call parseSessionMetadata or override the path logic
+
+	// Test parseSessionMetadata directly
+	meta, err := a.parseSessionMetadata(targetPath)
+	if err != nil {
+		t.Fatalf("parseSessionMetadata error: %v", err)
+	}
+
+	// Verify slug extraction
+	if meta.Slug != "implement-feature-xyz" {
+		t.Errorf("expected slug 'implement-feature-xyz', got %q", meta.Slug)
+	}
+
+	// Verify other metadata
+	if meta.SessionID != "test-session-slug" {
+		t.Errorf("expected sessionID 'test-session-slug', got %q", meta.SessionID)
+	}
+	if meta.MsgCount != 3 {
+		t.Errorf("expected 3 messages, got %d", meta.MsgCount)
+	}
+	if meta.CWD != "/home/user/project" {
+		t.Errorf("expected CWD '/home/user/project', got %q", meta.CWD)
+	}
+
+	t.Logf("slug=%s sessionID=%s msgs=%d", meta.Slug, meta.SessionID, meta.MsgCount)
+}
+
+func TestSlugExtraction_NoSlug(t *testing.T) {
+	// Create temp dir
+	tmpDir := t.TempDir()
+	a := &Adapter{projectsDir: tmpDir}
+
+	projectDir := tmpDir + "/-test-project"
+	if err := os.MkdirAll(projectDir, 0755); err != nil {
+		t.Fatalf("failed to create project dir: %v", err)
+	}
+
+	// Copy testdata file without slug
+	testdataPath := "testdata/valid_session.jsonl"
+	targetPath := projectDir + "/test-session-001.jsonl"
+	copyTestdataFile(t, testdataPath, targetPath)
+
+	meta, err := a.parseSessionMetadata(targetPath)
+	if err != nil {
+		t.Fatalf("parseSessionMetadata error: %v", err)
+	}
+
+	// Verify no slug
+	if meta.Slug != "" {
+		t.Errorf("expected empty slug, got %q", meta.Slug)
+	}
+
+	// Verify session ID is extracted from filename
+	if meta.SessionID != "test-session-001" {
+		t.Errorf("expected sessionID 'test-session-001', got %q", meta.SessionID)
+	}
+
+	t.Logf("slug=%q sessionID=%s msgs=%d", meta.Slug, meta.SessionID, meta.MsgCount)
+}
+
+func TestSlugExtraction_SessionsIntegration(t *testing.T) {
+	// Create temp dir with project structure
+	tmpDir := t.TempDir()
+	a := &Adapter{projectsDir: tmpDir}
+
+	// Create project hash dir that matches what projectDirPath would generate
+	// For path "/test/project", the hash is "-test-project"
+	projectDir := tmpDir + "/-test-project"
+	if err := os.MkdirAll(projectDir, 0755); err != nil {
+		t.Fatalf("failed to create project dir: %v", err)
+	}
+
+	// Copy both session files
+	copyTestdataFile(t, "testdata/valid_session_with_slug.jsonl", projectDir+"/test-session-slug.jsonl")
+	copyTestdataFile(t, "testdata/valid_session.jsonl", projectDir+"/test-session-001.jsonl")
+
+	// Call Sessions with a path that hashes to our project dir
+	sessions, err := a.Sessions("/test/project")
+	if err != nil {
+		t.Fatalf("Sessions error: %v", err)
+	}
+
+	if len(sessions) != 2 {
+		t.Fatalf("expected 2 sessions, got %d", len(sessions))
+	}
+
+	// Find session with slug
+	var withSlug, withoutSlug bool
+	for _, s := range sessions {
+		t.Logf("session: id=%s name=%s slug=%q", s.ID, s.Name, s.Slug)
+		if s.ID == "test-session-slug" {
+			withSlug = true
+			if s.Slug != "implement-feature-xyz" {
+				t.Errorf("expected slug 'implement-feature-xyz', got %q", s.Slug)
+			}
+			// Name should be the slug when present
+			if s.Name != "implement-feature-xyz" {
+				t.Errorf("expected name 'implement-feature-xyz', got %q", s.Name)
+			}
+		}
+		if s.ID == "test-session-001" {
+			withoutSlug = true
+			if s.Slug != "" {
+				t.Errorf("expected empty slug, got %q", s.Slug)
+			}
+			// Name should be short ID when no slug
+			if s.Name != "test-ses" {
+				t.Errorf("expected name 'test-ses' (shortID), got %q", s.Name)
+			}
+		}
+	}
+
+	if !withSlug {
+		t.Error("missing session with slug")
+	}
+	if !withoutSlug {
+		t.Error("missing session without slug")
+	}
+}
+
+func TestSlugExtraction_SlugOnLaterMessage(t *testing.T) {
+	// Test that slug is extracted even if it appears on a later message
+	tmpDir := t.TempDir()
+	a := &Adapter{projectsDir: tmpDir}
+
+	projectDir := tmpDir + "/-test-project"
+	if err := os.MkdirAll(projectDir, 0755); err != nil {
+		t.Fatalf("failed to create project dir: %v", err)
+	}
+
+	// Create a session where slug appears on second message
+	sessionData := `{"type":"user","uuid":"msg-001","sessionId":"late-slug-session","timestamp":"2024-01-15T10:00:00Z","message":{"role":"user","content":"First message"}}
+{"type":"assistant","uuid":"msg-002","sessionId":"late-slug-session","timestamp":"2024-01-15T10:00:05Z","message":{"role":"assistant","content":[{"type":"text","text":"Response"}]},"slug":"late-appearing-slug"}
+`
+	targetPath := projectDir + "/late-slug-session.jsonl"
+	if err := os.WriteFile(targetPath, []byte(sessionData), 0644); err != nil {
+		t.Fatalf("failed to write file: %v", err)
+	}
+
+	meta, err := a.parseSessionMetadata(targetPath)
+	if err != nil {
+		t.Fatalf("parseSessionMetadata error: %v", err)
+	}
+
+	// Slug should still be extracted from later message
+	if meta.Slug != "late-appearing-slug" {
+		t.Errorf("expected slug 'late-appearing-slug', got %q", meta.Slug)
+	}
+
+	t.Logf("slug=%s extracted from later message", meta.Slug)
+}
