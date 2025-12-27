@@ -649,6 +649,26 @@ func (p *Plugin) updateDiff(msg tea.KeyMsg) (plugin.Plugin, tea.Cmd) {
 		if p.diffViewMode == DiffViewSideBySide {
 			p.diffHorizOff += 10
 		}
+
+	case "ctrl+d":
+		// Page down (~10 lines)
+		p.diffScroll += 10
+		// Clamp to max
+		lines := countLines(p.diffContent)
+		maxScroll := lines - (p.height - 2)
+		if maxScroll < 0 {
+			maxScroll = 0
+		}
+		if p.diffScroll > maxScroll {
+			p.diffScroll = maxScroll
+		}
+
+	case "ctrl+u":
+		// Page up (~10 lines)
+		p.diffScroll -= 10
+		if p.diffScroll < 0 {
+			p.diffScroll = 0
+		}
 	}
 
 	return p, nil
