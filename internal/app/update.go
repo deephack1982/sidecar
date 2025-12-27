@@ -59,20 +59,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		})
 	}
 
-	// Forward other messages to active plugin
-	if p := m.ActivePlugin(); p != nil {
+	// Forward other messages to ALL plugins (not just active)
+	// This ensures plugin-specific messages (like SessionsLoadedMsg) reach
+	// their target plugin even when another plugin is focused
+	plugins := m.registry.Plugins()
+	for i, p := range plugins {
 		newPlugin, cmd := p.Update(msg)
-		// Plugin returned - update registry reference
-		plugins := m.registry.Plugins()
-		if m.activePlugin < len(plugins) {
-			plugins[m.activePlugin] = newPlugin
-		}
+		plugins[i] = newPlugin
 		if cmd != nil {
 			cmds = append(cmds, cmd)
 		}
-		if !m.showHelp && !m.showDiagnostics {
-			m.updateContext()
-		}
+	}
+	if !m.showHelp && !m.showDiagnostics {
+		m.updateContext()
 	}
 
 	return m, tea.Batch(cmds...)

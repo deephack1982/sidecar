@@ -2,6 +2,7 @@ package conversations
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -55,6 +56,11 @@ type Plugin struct {
 
 	// Watcher channel
 	watchChan <-chan adapter.Event
+
+	// Search state
+	searchMode    bool
+	searchQuery   string
+	searchResults []adapter.Session
 }
 
 // New creates a new conversations plugin.
@@ -87,7 +93,7 @@ func (p *Plugin) Init(ctx *plugin.Context) error {
 	// Check if adapter can detect this project
 	found, err := p.adapter.Detect(ctx.WorkDir)
 	if err != nil || !found {
-		return nil // No sessions for this project
+		return nil
 	}
 
 	return nil
@@ -128,8 +134,16 @@ func (p *Plugin) Update(msg tea.Msg) (plugin.Plugin, tea.Cmd) {
 		p.hasMore = len(msg.Messages) >= p.pageSize
 		return p, nil
 
+	case WatchStartedMsg:
+		// Watcher started, now listen for events
+		return p, p.listenForWatchEvents()
+
 	case WatchEventMsg:
-		return p, p.loadSessions()
+		// Session data changed, refresh and continue listening
+		return p, tea.Batch(
+			p.loadSessions(),
+			p.listenForWatchEvents(),
+		)
 
 	case tea.WindowSizeMsg:
 		p.width = msg.Width
@@ -141,9 +155,16 @@ func (p *Plugin) Update(msg tea.Msg) (plugin.Plugin, tea.Cmd) {
 
 // updateSessions handles key events in session list view.
 func (p *Plugin) updateSessions(msg tea.KeyMsg) (plugin.Plugin, tea.Cmd) {
+	// Handle search mode input
+	if p.searchMode {
+		return p.updateSearch(msg)
+	}
+
+	sessions := p.visibleSessions()
+
 	switch msg.String() {
 	case "j", "down":
-		if p.cursor < len(p.sessions)-1 {
+		if p.cursor < len(sessions)-1 {
 			p.cursor++
 			p.ensureCursorVisible()
 		}
@@ -159,25 +180,113 @@ func (p *Plugin) updateSessions(msg tea.KeyMsg) (plugin.Plugin, tea.Cmd) {
 		p.scrollOff = 0
 
 	case "G":
-		if len(p.sessions) > 0 {
-			p.cursor = len(p.sessions) - 1
+		if len(sessions) > 0 {
+			p.cursor = len(sessions) - 1
 			p.ensureCursorVisible()
 		}
 
 	case "enter":
-		if len(p.sessions) > 0 && p.cursor < len(p.sessions) {
-			p.selectedSession = p.sessions[p.cursor].ID
+		if len(sessions) > 0 && p.cursor < len(sessions) {
+			p.selectedSession = sessions[p.cursor].ID
 			p.view = ViewMessages
 			p.msgCursor = 0
 			p.msgScrollOff = 0
 			return p, p.loadMessages(p.selectedSession)
 		}
 
+	case "/":
+		p.searchMode = true
+		p.searchQuery = ""
+		p.cursor = 0
+		p.scrollOff = 0
+
 	case "r":
 		return p, p.loadSessions()
 	}
 
 	return p, nil
+}
+
+// updateSearch handles key events in search mode.
+func (p *Plugin) updateSearch(msg tea.KeyMsg) (plugin.Plugin, tea.Cmd) {
+	switch msg.String() {
+	case "esc":
+		p.searchMode = false
+		p.searchQuery = ""
+		p.searchResults = nil
+		p.cursor = 0
+		p.scrollOff = 0
+
+	case "enter":
+		sessions := p.visibleSessions()
+		if len(sessions) > 0 && p.cursor < len(sessions) {
+			p.selectedSession = sessions[p.cursor].ID
+			p.view = ViewMessages
+			p.msgCursor = 0
+			p.msgScrollOff = 0
+			p.searchMode = false
+			return p, p.loadMessages(p.selectedSession)
+		}
+
+	case "backspace":
+		if len(p.searchQuery) > 0 {
+			p.searchQuery = p.searchQuery[:len(p.searchQuery)-1]
+			p.filterSessions()
+			p.cursor = 0
+			p.scrollOff = 0
+		}
+
+	case "up", "ctrl+p":
+		if p.cursor > 0 {
+			p.cursor--
+			p.ensureCursorVisible()
+		}
+
+	case "down", "ctrl+n":
+		sessions := p.visibleSessions()
+		if p.cursor < len(sessions)-1 {
+			p.cursor++
+			p.ensureCursorVisible()
+		}
+
+	default:
+		// Add character to search query
+		if len(msg.String()) == 1 {
+			p.searchQuery += msg.String()
+			p.filterSessions()
+			p.cursor = 0
+			p.scrollOff = 0
+		}
+	}
+
+	return p, nil
+}
+
+// filterSessions filters sessions based on search query.
+func (p *Plugin) filterSessions() {
+	if p.searchQuery == "" {
+		p.searchResults = nil
+		return
+	}
+
+	query := strings.ToLower(p.searchQuery)
+	var results []adapter.Session
+	for _, s := range p.sessions {
+		if strings.Contains(strings.ToLower(s.Name), query) ||
+			strings.Contains(strings.ToLower(s.Slug), query) ||
+			strings.Contains(s.ID, query) {
+			results = append(results, s)
+		}
+	}
+	p.searchResults = results
+}
+
+// visibleSessions returns sessions to display (filtered or all).
+func (p *Plugin) visibleSessions() []adapter.Session {
+	if p.searchMode && p.searchQuery != "" {
+		return p.searchResults
+	}
+	return p.sessions
 }
 
 // updateMessages handles key events in message view.
@@ -242,15 +351,30 @@ func (p *Plugin) SetFocused(f bool) { p.focused = f }
 
 // Commands returns the available commands.
 func (p *Plugin) Commands() []plugin.Command {
+	if p.searchMode {
+		return []plugin.Command{
+			{ID: "select", Name: "Select", Context: "conversations-search"},
+			{ID: "cancel", Name: "Cancel", Context: "conversations-search"},
+		}
+	}
+	if p.view == ViewMessages {
+		return []plugin.Command{
+			{ID: "back", Name: "Back", Context: "conversation-detail"},
+			{ID: "scroll", Name: "Scroll", Context: "conversation-detail"},
+		}
+	}
 	return []plugin.Command{
-		{ID: "view-session", Name: "View session", Context: "conversations"},
-		{ID: "back", Name: "Back", Context: "conversation-detail"},
-		{ID: "scroll", Name: "Scroll", Context: "conversation-detail"},
+		{ID: "view-session", Name: "View", Context: "conversations"},
+		{ID: "search", Name: "Search", Context: "conversations"},
+		{ID: "refresh", Name: "Refresh", Context: "conversations"},
 	}
 }
 
 // FocusContext returns the current focus context.
 func (p *Plugin) FocusContext() string {
+	if p.searchMode {
+		return "conversations-search"
+	}
 	if p.view == ViewMessages {
 		return "conversation-detail"
 	}
@@ -269,9 +393,27 @@ func (p *Plugin) Diagnostics() []plugin.Diagnostic {
 		detail = "no sessions"
 	} else {
 		detail = formatSessionCount(len(p.sessions))
+		// Add active session count
+		active := 0
+		for _, s := range p.sessions {
+			if s.IsActive {
+				active++
+			}
+		}
+		if active > 0 {
+			detail = fmt.Sprintf("%s (%d active)", detail, active)
+		}
 	}
+
+	// Add watcher status
+	watchStatus := "off"
+	if p.watchChan != nil {
+		watchStatus = "on"
+	}
+
 	return []plugin.Diagnostic{
 		{ID: "conversations", Status: status, Detail: detail},
+		{ID: "watcher", Status: watchStatus, Detail: "fsnotify"},
 	}
 }
 
@@ -313,14 +455,32 @@ func (p *Plugin) loadMessages(sessionID string) tea.Cmd {
 func (p *Plugin) startWatcher() tea.Cmd {
 	return func() tea.Msg {
 		if p.adapter == nil {
+			p.ctx.Logger.Debug("conversations: no adapter, skip watcher")
 			return nil
 		}
 		ch, err := p.adapter.Watch(p.ctx.WorkDir)
 		if err != nil {
+			p.ctx.Logger.Error("conversations: watcher failed", "error", err)
 			return nil
 		}
 		p.watchChan = ch
+		p.ctx.Logger.Debug("conversations: watcher started")
 		return WatchStartedMsg{}
+	}
+}
+
+// listenForWatchEvents waits for the next file system event.
+func (p *Plugin) listenForWatchEvents() tea.Cmd {
+	if p.watchChan == nil {
+		return nil
+	}
+	return func() tea.Msg {
+		_, ok := <-p.watchChan
+		if !ok {
+			// Channel closed
+			return nil
+		}
+		return WatchEventMsg{}
 	}
 }
 

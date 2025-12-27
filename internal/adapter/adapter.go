@@ -31,6 +31,7 @@ type CapabilitySet map[Capability]bool
 type Session struct {
 	ID        string
 	Name      string
+	Slug      string // Short identifier for display (e.g., "ses_abc123")
 	CreatedAt time.Time
 	UpdatedAt time.Time
 	IsActive  bool

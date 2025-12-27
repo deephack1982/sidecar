@@ -18,29 +18,51 @@ func renderNoAdapter() string {
 func (p *Plugin) renderSessions() string {
 	var sb strings.Builder
 
-	// Header
-	header := fmt.Sprintf(" Claude Code Sessions                    %d sessions", len(p.sessions))
+	sessions := p.visibleSessions()
+
+	// Header with count
+	countStr := fmt.Sprintf("%d sessions", len(p.sessions))
+	if p.searchMode && p.searchQuery != "" {
+		countStr = fmt.Sprintf("%d/%d", len(sessions), len(p.sessions))
+	}
+	header := fmt.Sprintf(" Claude Code Sessions                    %s", countStr)
 	sb.WriteString(styles.PanelHeader.Render(header))
 	sb.WriteString("\n")
-	sb.WriteString(styles.Muted.Render(strings.Repeat("━", p.width-2)))
-	sb.WriteString("\n")
+
+	// Search bar (if in search mode)
+	if p.searchMode {
+		searchLine := fmt.Sprintf(" /%s█", p.searchQuery)
+		sb.WriteString(styles.StatusInProgress.Render(searchLine))
+		sb.WriteString("\n")
+	} else {
+		sb.WriteString(styles.Muted.Render(strings.Repeat("━", p.width-2)))
+		sb.WriteString("\n")
+	}
 
 	// Content
-	if len(p.sessions) == 0 {
-		sb.WriteString(styles.Muted.Render(" No sessions found for this project"))
+	if len(sessions) == 0 {
+		if p.searchMode {
+			sb.WriteString(styles.Muted.Render(" No matching sessions"))
+		} else {
+			sb.WriteString(styles.Muted.Render(" No sessions found for this project"))
+		}
 	} else {
-		contentHeight := p.height - 2
+		headerLines := 2
+		if p.searchMode {
+			headerLines = 2
+		}
+		contentHeight := p.height - headerLines
 		if contentHeight < 1 {
 			contentHeight = 1
 		}
 
 		end := p.scrollOff + contentHeight
-		if end > len(p.sessions) {
-			end = len(p.sessions)
+		if end > len(sessions) {
+			end = len(sessions)
 		}
 
 		for i := p.scrollOff; i < end; i++ {
-			session := p.sessions[i]
+			session := sessions[i]
 			selected := i == p.cursor
 			sb.WriteString(p.renderSessionRow(session, selected))
 			sb.WriteString("\n")
@@ -152,9 +174,10 @@ func (p *Plugin) renderMessage(msg adapter.Message, maxWidth int) []string {
 		roleStyle = styles.StatusStaged
 	}
 
+	// Enhanced token display: in/out/cache
 	tokens := ""
-	if msg.OutputTokens > 0 {
-		tokens = fmt.Sprintf(" %dk tok", msg.OutputTokens/1000)
+	if msg.OutputTokens > 0 || msg.InputTokens > 0 {
+		tokens = formatTokens(msg.InputTokens, msg.OutputTokens, msg.CacheRead)
 	}
 
 	headerLine := fmt.Sprintf(" [%s] %s%s",
@@ -244,4 +267,35 @@ func formatDuration(d time.Duration) string {
 		return "1d ago"
 	}
 	return fmt.Sprintf("%dd ago", days)
+}
+
+// formatTokens formats token counts compactly.
+func formatTokens(input, output, cache int) string {
+	parts := []string{}
+
+	if input > 0 {
+		parts = append(parts, fmt.Sprintf("in:%s", formatK(input)))
+	}
+	if output > 0 {
+		parts = append(parts, fmt.Sprintf("out:%s", formatK(output)))
+	}
+	if cache > 0 {
+		parts = append(parts, fmt.Sprintf("$:%s", formatK(cache)))
+	}
+
+	if len(parts) == 0 {
+		return ""
+	}
+	return " (" + strings.Join(parts, " ") + ")"
+}
+
+// formatK formats a number with K/M suffix.
+func formatK(n int) string {
+	if n >= 1000000 {
+		return fmt.Sprintf("%.1fM", float64(n)/1000000)
+	}
+	if n >= 1000 {
+		return fmt.Sprintf("%.1fk", float64(n)/1000)
+	}
+	return fmt.Sprintf("%d", n)
 }

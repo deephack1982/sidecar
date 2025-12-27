@@ -7,15 +7,16 @@ import (
 
 // RawMessage represents a raw JSONL line from Claude Code.
 type RawMessage struct {
-	Type      string          `json:"type"`
-	UUID      string          `json:"uuid"`
-	ParentUUID *string        `json:"parentUuid"`
-	SessionID string          `json:"sessionId"`
-	Timestamp time.Time       `json:"timestamp"`
-	Message   *MessageContent `json:"message,omitempty"`
-	CWD       string          `json:"cwd,omitempty"`
-	Version   string          `json:"version,omitempty"`
-	GitBranch string          `json:"gitBranch,omitempty"`
+	Type       string          `json:"type"`
+	UUID       string          `json:"uuid"`
+	ParentUUID *string         `json:"parentUuid"`
+	SessionID  string          `json:"sessionId"`
+	Timestamp  time.Time       `json:"timestamp"`
+	Message    *MessageContent `json:"message,omitempty"`
+	CWD        string          `json:"cwd,omitempty"`
+	Version    string          `json:"version,omitempty"`
+	GitBranch  string          `json:"gitBranch,omitempty"`
+	Slug       string          `json:"slug,omitempty"`
 }
 
 // MessageContent holds the actual message data.
@@ -63,6 +64,7 @@ type ToolResult struct {
 type SessionMetadata struct {
 	Path      string
 	SessionID string
+	Slug      string // Short slug from summary line (e.g., "ses_abc123")
 	CWD       string
 	Version   string
 	GitBranch string

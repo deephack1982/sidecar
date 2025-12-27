@@ -62,11 +62,24 @@ func DefaultBindings() []Binding {
 
 		// Conversations context
 		{Key: "enter", Command: "view-session", Context: "conversations"},
+		{Key: "/", Command: "search", Context: "conversations"},
+		{Key: "r", Command: "refresh", Context: "conversations"},
+
+		// Conversations search context
+		{Key: "enter", Command: "select", Context: "conversations-search"},
+		{Key: "esc", Command: "cancel", Context: "conversations-search"},
+		{Key: "up", Command: "cursor-up", Context: "conversations-search"},
+		{Key: "down", Command: "cursor-down", Context: "conversations-search"},
+		{Key: "ctrl+p", Command: "cursor-up", Context: "conversations-search"},
+		{Key: "ctrl+n", Command: "cursor-down", Context: "conversations-search"},
 
 		// Conversation detail context
 		{Key: "esc", Command: "back", Context: "conversation-detail"},
+		{Key: "q", Command: "back", Context: "conversation-detail"},
 		{Key: "j", Command: "scroll", Context: "conversation-detail"},
 		{Key: "k", Command: "scroll", Context: "conversation-detail"},
+		{Key: "g", Command: "cursor-top", Context: "conversation-detail"},
+		{Key: "G", Command: "cursor-bottom", Context: "conversation-detail"},
 
 		// Git Commit context (commit message editor)
 		{Key: "esc", Command: "cancel", Context: "git-commit"},

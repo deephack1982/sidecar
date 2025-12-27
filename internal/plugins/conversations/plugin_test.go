@@ -57,12 +57,15 @@ func TestDiagnosticsNoAdapter(t *testing.T) {
 	p := New()
 	diags := p.Diagnostics()
 
-	if len(diags) != 1 {
-		t.Fatalf("expected 1 diagnostic, got %d", len(diags))
+	if len(diags) != 2 {
+		t.Fatalf("expected 2 diagnostics, got %d", len(diags))
 	}
 
 	if diags[0].Status != "disabled" {
 		t.Errorf("expected status 'disabled', got %q", diags[0].Status)
+	}
+	if diags[1].ID != "watcher" {
+		t.Errorf("expected watcher diagnostic, got %q", diags[1].ID)
 	}
 }
 
@@ -76,12 +79,15 @@ func TestDiagnosticsWithSessions(t *testing.T) {
 
 	diags := p.Diagnostics()
 
-	if len(diags) != 1 {
-		t.Fatalf("expected 1 diagnostic, got %d", len(diags))
+	if len(diags) != 2 {
+		t.Fatalf("expected 2 diagnostics, got %d", len(diags))
 	}
 
 	if diags[0].Status != "ok" {
 		t.Errorf("expected status 'ok', got %q", diags[0].Status)
+	}
+	if diags[1].ID != "watcher" {
+		t.Errorf("expected watcher diagnostic, got %q", diags[1].ID)
 	}
 }
 
@@ -176,13 +182,99 @@ func TestFormatSessionCount(t *testing.T) {
 	}
 }
 
+func TestSearchModeToggle(t *testing.T) {
+	p := New()
+	p.sessions = []adapter.Session{
+		{ID: "test-1", Name: "first-session"},
+		{ID: "test-2", Name: "second-session"},
+	}
+
+	// Initially not in search mode
+	if p.searchMode {
+		t.Error("expected searchMode to be false initially")
+	}
+
+	// FocusContext should be "conversations"
+	if ctx := p.FocusContext(); ctx != "conversations" {
+		t.Errorf("expected context 'conversations', got %q", ctx)
+	}
+
+	// Toggle search mode on
+	p.searchMode = true
+	if ctx := p.FocusContext(); ctx != "conversations-search" {
+		t.Errorf("expected context 'conversations-search', got %q", ctx)
+	}
+}
+
+func TestFilterSessions(t *testing.T) {
+	p := New()
+	p.sessions = []adapter.Session{
+		{ID: "test-1", Name: "alpha-session", Slug: "alpha-slug"},
+		{ID: "test-2", Name: "beta-session", Slug: "beta-slug"},
+		{ID: "test-3", Name: "gamma-session", Slug: "gamma-slug"},
+	}
+
+	// No filter
+	p.filterSessions()
+	if p.searchResults != nil {
+		t.Error("expected nil searchResults with empty query")
+	}
+
+	// Filter by name
+	p.searchQuery = "beta"
+	p.filterSessions()
+	if len(p.searchResults) != 1 {
+		t.Errorf("expected 1 result, got %d", len(p.searchResults))
+	}
+	if p.searchResults[0].Name != "beta-session" {
+		t.Errorf("expected 'beta-session', got %q", p.searchResults[0].Name)
+	}
+
+	// Filter by slug
+	p.searchQuery = "gamma-slug"
+	p.filterSessions()
+	if len(p.searchResults) != 1 {
+		t.Errorf("expected 1 result, got %d", len(p.searchResults))
+	}
+
+	// No matches
+	p.searchQuery = "nonexistent"
+	p.filterSessions()
+	if len(p.searchResults) != 0 {
+		t.Errorf("expected 0 results, got %d", len(p.searchResults))
+	}
+}
+
+func TestVisibleSessions(t *testing.T) {
+	p := New()
+	p.sessions = []adapter.Session{
+		{ID: "test-1", Name: "alpha"},
+		{ID: "test-2", Name: "beta"},
+	}
+
+	// Without search mode, should return all sessions
+	visible := p.visibleSessions()
+	if len(visible) != 2 {
+		t.Errorf("expected 2 visible sessions, got %d", len(visible))
+	}
+
+	// In search mode with query, should return filtered results
+	p.searchMode = true
+	p.searchQuery = "alpha"
+	p.filterSessions()
+	visible = p.visibleSessions()
+	if len(visible) != 1 {
+		t.Errorf("expected 1 visible session, got %d", len(visible))
+	}
+}
+
 // mockAdapter is a minimal adapter for testing
 type mockAdapter struct{}
 
-func (m *mockAdapter) ID() string                                            { return "mock" }
-func (m *mockAdapter) Name() string                                          { return "Mock" }
-func (m *mockAdapter) Detect(projectRoot string) (bool, error)               { return true, nil }
-func (m *mockAdapter) Capabilities() adapter.CapabilitySet                   { return nil }
+func (m *mockAdapter) ID() string                                             { return "mock" }
+func (m *mockAdapter) Name() string                                           { return "Mock" }
+func (m *mockAdapter) Detect(projectRoot string) (bool, error)                { return true, nil }
+func (m *mockAdapter) Capabilities() adapter.CapabilitySet                    { return nil }
 func (m *mockAdapter) Sessions(projectRoot string) ([]adapter.Session, error) { return nil, nil }
 func (m *mockAdapter) Messages(sessionID string) ([]adapter.Message, error)   { return nil, nil }
 func (m *mockAdapter) Usage(sessionID string) (*adapter.UsageStats, error)    { return nil, nil }

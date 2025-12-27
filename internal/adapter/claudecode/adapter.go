@@ -88,9 +88,16 @@ func (a *Adapter) Sessions(projectRoot string) ([]adapter.Session, error) {
 			continue
 		}
 
+		// Use slug as name if available, otherwise short ID
+		name := meta.Slug
+		if name == "" {
+			name = meta.SessionID[:8]
+		}
+
 		sessions = append(sessions, adapter.Session{
 			ID:        meta.SessionID,
-			Name:      meta.SessionID[:8], // Short ID as name
+			Name:      name,
+			Slug:      meta.Slug,
 			CreatedAt: meta.FirstMsg,
 			UpdatedAt: meta.LastMsg,
 			IsActive:  time.Since(meta.LastMsg) < 5*time.Minute,
@@ -251,6 +258,10 @@ func (a *Adapter) parseSessionMetadata(path string) (*SessionMetadata, error) {
 			meta.CWD = raw.CWD
 			meta.Version = raw.Version
 			meta.GitBranch = raw.GitBranch
+		}
+		// Extract slug from first message that has it
+		if meta.Slug == "" && raw.Slug != "" {
+			meta.Slug = raw.Slug
 		}
 		meta.LastMsg = raw.Timestamp
 		meta.MsgCount++
