@@ -766,10 +766,13 @@ func (p *Plugin) renderSidebarPane(height int) string {
 // renderCompactSessionRow renders a compact session row for the sidebar.
 func (p *Plugin) renderCompactSessionRow(session adapter.Session, selected bool, maxWidth int) string {
 	// Calculate prefix length for width calculations
-	// cursor(2) + active(1) + selected(0-1)
+	// cursor(2) + active(1) + selected(0-1) + subagent indent(2)
 	prefixLen := 3
 	if session.ID == p.selectedSession {
 		prefixLen++
+	}
+	if session.IsSubAgent {
+		prefixLen += 2 // extra indent for sub-agents
 	}
 
 	// Session name/ID
@@ -794,6 +797,11 @@ func (p *Plugin) renderCompactSessionRow(session adapter.Session, selected bool,
 	if selected {
 		sb.WriteString(styles.ListCursor.Render("> "))
 	} else {
+		sb.WriteString("  ")
+	}
+
+	// Sub-agent indent (before indicator)
+	if session.IsSubAgent {
 		sb.WriteString("  ")
 	}
 

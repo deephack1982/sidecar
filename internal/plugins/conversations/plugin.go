@@ -884,10 +884,17 @@ func (p *Plugin) ensureTurnCursorVisible() {
 		visibleRows = 1
 	}
 
+	// Each turn takes ~3 lines (header + content/thinking/tools)
+	// so divide by 3 to get approximate visible turns
+	visibleTurns := visibleRows / 3
+	if visibleTurns < 1 {
+		visibleTurns = 1
+	}
+
 	if p.turnCursor < p.turnScrollOff {
 		p.turnScrollOff = p.turnCursor
-	} else if p.turnCursor >= p.turnScrollOff+visibleRows {
-		p.turnScrollOff = p.turnCursor - visibleRows + 1
+	} else if p.turnCursor >= p.turnScrollOff+visibleTurns {
+		p.turnScrollOff = p.turnCursor - visibleTurns + 1
 	}
 }
 
