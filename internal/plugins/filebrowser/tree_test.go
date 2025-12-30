@@ -121,3 +121,174 @@ func TestSortChildren(t *testing.T) {
 		t.Error("Files should be alphabetically sorted")
 	}
 }
+
+func TestFileTree_RefreshPreservesExpandedState(t *testing.T) {
+	// Create temp directory structure
+	tmpDir := t.TempDir()
+	os.MkdirAll(filepath.Join(tmpDir, "dir1", "nested"), 0755)
+	os.MkdirAll(filepath.Join(tmpDir, "dir2"), 0755)
+	os.WriteFile(filepath.Join(tmpDir, "dir1", "file.txt"), []byte("test"), 0644)
+	os.WriteFile(filepath.Join(tmpDir, "dir1", "nested", "deep.txt"), []byte("test"), 0644)
+	os.WriteFile(filepath.Join(tmpDir, "dir2", "other.txt"), []byte("test"), 0644)
+
+	tree := NewFileTree(tmpDir)
+	if err := tree.Build(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Find and expand dir1
+	var dir1Node *FileNode
+	for _, node := range tree.FlatList {
+		if node.Name == "dir1" && node.IsDir {
+			dir1Node = node
+			break
+		}
+	}
+	if dir1Node == nil {
+		t.Fatal("Expected to find dir1 node")
+	}
+
+	if err := tree.Expand(dir1Node); err != nil {
+		t.Fatal(err)
+	}
+
+	// Find and expand nested
+	var nestedNode *FileNode
+	for _, node := range tree.FlatList {
+		if node.Name == "nested" && node.IsDir {
+			nestedNode = node
+			break
+		}
+	}
+	if nestedNode == nil {
+		t.Fatal("Expected to find nested node")
+	}
+
+	if err := tree.Expand(nestedNode); err != nil {
+		t.Fatal(err)
+	}
+
+	// Remember the length after expanding
+	expandedLen := tree.Len()
+
+	// Verify expanded paths are tracked
+	expandedPaths := tree.GetExpandedPaths()
+	if !expandedPaths["dir1"] {
+		t.Error("Expected dir1 to be in expanded paths")
+	}
+	if !expandedPaths["dir1/nested"] {
+		t.Error("Expected dir1/nested to be in expanded paths")
+	}
+
+	// Add a new file (simulating external change)
+	os.WriteFile(filepath.Join(tmpDir, "newfile.txt"), []byte("new"), 0644)
+
+	// Refresh the tree
+	if err := tree.Refresh(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify expanded state is preserved
+	// Tree should have similar length (plus the new file)
+	if tree.Len() < expandedLen {
+		t.Errorf("Tree length decreased after refresh: got %d, want >= %d", tree.Len(), expandedLen)
+	}
+
+	// Find dir1 again and verify it's still expanded
+	var dir1AfterRefresh *FileNode
+	for _, node := range tree.FlatList {
+		if node.Name == "dir1" && node.IsDir {
+			dir1AfterRefresh = node
+			break
+		}
+	}
+	if dir1AfterRefresh == nil {
+		t.Fatal("Expected to find dir1 after refresh")
+	}
+	if !dir1AfterRefresh.IsExpanded {
+		t.Error("dir1 should still be expanded after refresh")
+	}
+
+	// Find nested and verify it's still expanded
+	var nestedAfterRefresh *FileNode
+	for _, node := range tree.FlatList {
+		if node.Name == "nested" && node.IsDir {
+			nestedAfterRefresh = node
+			break
+		}
+	}
+	if nestedAfterRefresh == nil {
+		t.Fatal("Expected to find nested after refresh")
+	}
+	if !nestedAfterRefresh.IsExpanded {
+		t.Error("nested should still be expanded after refresh")
+	}
+
+	// Verify new file is visible
+	var foundNewFile bool
+	for _, node := range tree.FlatList {
+		if node.Name == "newfile.txt" {
+			foundNewFile = true
+			break
+		}
+	}
+	if !foundNewFile {
+		t.Error("Expected to find newfile.txt after refresh")
+	}
+}
+
+func TestFileTree_GetExpandedPaths_Empty(t *testing.T) {
+	tmpDir := t.TempDir()
+	os.MkdirAll(filepath.Join(tmpDir, "dir1"), 0755)
+
+	tree := NewFileTree(tmpDir)
+	if err := tree.Build(); err != nil {
+		t.Fatal(err)
+	}
+
+	// No directories expanded
+	paths := tree.GetExpandedPaths()
+	if len(paths) != 0 {
+		t.Errorf("Expected no expanded paths, got %d", len(paths))
+	}
+}
+
+func TestFileTree_RestoreExpandedPaths_DeletedDir(t *testing.T) {
+	// Test that restoring works gracefully when a previously expanded dir is deleted
+	tmpDir := t.TempDir()
+	os.MkdirAll(filepath.Join(tmpDir, "willdelete"), 0755)
+	os.WriteFile(filepath.Join(tmpDir, "willdelete", "file.txt"), []byte("test"), 0644)
+
+	tree := NewFileTree(tmpDir)
+	if err := tree.Build(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Expand the directory
+	var dirNode *FileNode
+	for _, node := range tree.FlatList {
+		if node.Name == "willdelete" && node.IsDir {
+			dirNode = node
+			break
+		}
+	}
+	if dirNode == nil {
+		t.Fatal("Expected to find willdelete node")
+	}
+	tree.Expand(dirNode)
+
+	// Delete the directory
+	os.RemoveAll(filepath.Join(tmpDir, "willdelete"))
+
+	// Refresh should not error even though expanded dir is gone
+	if err := tree.Refresh(); err != nil {
+		t.Fatalf("Refresh failed after deleting expanded dir: %v", err)
+	}
+
+	// Tree should not contain the deleted directory
+	for _, node := range tree.FlatList {
+		if node.Name == "willdelete" {
+			t.Error("Deleted directory should not be in tree")
+		}
+	}
+}

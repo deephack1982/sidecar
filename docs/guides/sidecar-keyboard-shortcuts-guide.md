@@ -120,11 +120,41 @@ func (p *Plugin) Update(msg tea.Msg) (plugin.Plugin, tea.Cmd) {
 }
 ```
 
+### Footer Priority System
+
+The footer shows **plugin-specific hints first**, then global hints (help, quit). Within plugin hints, commands are sorted by `Priority` field (lower = shown first).
+
+```go
+type Command struct {
+    ID          string
+    Name        string
+    Description string
+    Category    Category
+    Context     string
+    Priority    int  // 1=highest priority, 0=default (treated as 99)
+}
+```
+
+**Priority Guidelines:**
+- **Priority 1**: Primary actions (Stage, Commit, View, Open)
+- **Priority 2**: Common secondary actions (Diff, Search, Push)
+- **Priority 3**: Tertiary actions (History, Refresh)
+- **Priority 4+**: Rarely used actions (Browse, external integrations)
+
+```go
+// Example: git-status context priorities
+{ID: "stage-file", Name: "Stage", Context: "git-status", Priority: 1},
+{ID: "commit", Name: "Commit", Context: "git-status", Priority: 1},
+{ID: "show-diff", Name: "Diff", Context: "git-status", Priority: 2},
+{ID: "show-history", Name: "History", Context: "git-status", Priority: 3},
+{ID: "open-in-file-browser", Name: "Browse", Context: "git-status", Priority: 4},
+```
+
 ### Footer Width Considerations
 
 The footer auto-truncates hints that exceed available width. To maximize visibility:
 - Keep command names short: "Stage" not "Stage file"
-- Prioritize most-used commands first in `Commands()`
+- Set appropriate `Priority` values (important commands survive truncation)
 - Test at different terminal widths
 
 ## FocusContext Reference
@@ -267,11 +297,14 @@ func (p *Plugin) Commands() []plugin.Command {
 
 | File | Purpose |
 |------|---------|
-| `internal/plugin/plugin.go` | `Command` struct, `Commands()`, `FocusContext()` interface |
+| `internal/plugin/plugin.go` | `Command` struct (ID, Name, Context, Priority), `Commands()`, `FocusContext()` interface |
 | `internal/keymap/bindings.go` | Default key→command mappings |
 | `internal/keymap/registry.go` | Runtime binding lookup, handler registration |
 | `internal/app/update.go` | Key routing, `isRootContext()` |
-| `internal/app/view.go` | Footer rendering from `Commands()` |
+| `internal/app/view.go` | Footer rendering, priority sorting |
+| `internal/palette/palette.go` | Command palette model, context toggle |
+| `internal/palette/view.go` | Palette rendering, virtual scrolling |
+| `internal/palette/entries.go` | Entry building, context filtering, command grouping |
 
 ## Common Mistakes
 
@@ -282,17 +315,19 @@ func (p *Plugin) Commands() []plugin.Command {
 | Double footer | Plugin renders own footer | Remove footer rendering from plugin's `View()` |
 | Wrong hints shown | `FocusContext()` not updated | Return correct context for current view mode |
 | Footer too long | Command names too verbose | Use 1-word names: "Stage" not "Stage file" |
+| Important hint truncated | Priority too high (or 0) | Set lower Priority value (1=highest importance) |
 | 'q' quits unexpectedly | Context is root | Add context to non-root list in `isRootContext()` |
 | 'q' doesn't quit | Context not root | Add context to root list in `isRootContext()` |
 
 ## Checklist for New Shortcuts
 
-- [ ] Command added to `Commands()` with ID, Name, Context
+- [ ] Command added to `Commands()` with ID, Name, Context, Priority
 - [ ] `FocusContext()` returns matching context for current view
 - [ ] Binding added to `bindings.go` with Key, Command, Context
 - [ ] Key handled in `Update()` via `tea.KeyMsg`
 - [ ] No duplicate/conflicting keys in same context
 - [ ] Command name is short (1-2 words max)
+- [ ] Priority set appropriately (1=primary, 2=secondary, 3+=tertiary)
 - [ ] Plugin does NOT render its own footer
 - [ ] 'q' behavior is correct (check `isRootContext()`)
 
@@ -331,11 +366,38 @@ func (p *Plugin) Commands() []plugin.Command {
 
 This means `c` in `git-status` context triggers `commit`, but `c` in `global` context triggers `focus-conversations`.
 
+## Command Palette (?)
+
+The command palette shows all available shortcuts. Press `?` to open.
+
+### Navigation
+- `j`/`k` or `↑`/`↓` - Move cursor
+- `ctrl+d`/`ctrl+u` - Page down/up
+- `enter` - Execute selected command
+- `esc` - Close palette
+
+### Context Toggle
+Press `tab` to toggle between two modes:
+
+1. **Current Context** (default): Shows only shortcuts for active context + global
+   - No duplicates - clean, focused view
+   - Example: In git-status, shows Stage/Commit/Diff but not file browser commands
+
+2. **All Contexts**: Shows all shortcuts grouped by command
+   - Commands in multiple contexts show "(N contexts)" indicator
+   - Useful for discovering all available shortcuts
+
+### Virtual Scrolling
+The palette uses virtual scrolling - only visible entries are rendered. Scroll indicators appear when content extends beyond the viewport:
+- `↑ N more above` - Content scrolled above
+- `↓ N more below` - Content scrolled below
+
 ## Testing
 
 1. Run `sidecar --debug` to see key handling logs
-2. Press `?` to verify help overlay shows your bindings
-3. Check footer shows your command names
-4. Test that keys trigger correct actions
-5. Test context switches (enter subview, verify new bindings active)
-6. Test 'q' behavior in each context (quit vs back)
+2. Press `?` to verify command palette shows your bindings
+3. Press `tab` in palette to toggle context modes
+4. Check footer shows your command names (plugin hints first)
+5. Test that keys trigger correct actions
+6. Test context switches (enter subview, verify new bindings active)
+7. Test 'q' behavior in each context (quit vs back)

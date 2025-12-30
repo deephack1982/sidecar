@@ -190,10 +190,10 @@ func (p *Plugin) listenForWatchEvents() tea.Cmd {
 	}
 }
 
-// refresh rebuilds the file tree.
+// refresh rebuilds the file tree, preserving expanded state.
 func (p *Plugin) refresh() tea.Cmd {
 	return func() tea.Msg {
-		err := p.tree.Build()
+		err := p.tree.Refresh()
 		return TreeBuiltMsg{Err: err}
 	}
 }

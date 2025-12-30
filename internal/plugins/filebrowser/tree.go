@@ -214,7 +214,57 @@ func (t *FileTree) IndexOf(node *FileNode) int {
 	return -1
 }
 
-// Refresh reloads the tree from disk.
+// GetExpandedPaths returns the paths of all expanded directories.
+func (t *FileTree) GetExpandedPaths() map[string]bool {
+	expanded := make(map[string]bool)
+	if t.Root != nil {
+		t.collectExpanded(t.Root, expanded)
+	}
+	return expanded
+}
+
+func (t *FileTree) collectExpanded(node *FileNode, expanded map[string]bool) {
+	for _, child := range node.Children {
+		if child.IsDir && child.IsExpanded {
+			expanded[child.Path] = true
+			t.collectExpanded(child, expanded)
+		}
+	}
+}
+
+// RestoreExpandedPaths expands directories that were previously expanded.
+func (t *FileTree) RestoreExpandedPaths(paths map[string]bool) {
+	if t.Root == nil || len(paths) == 0 {
+		return
+	}
+	t.restoreExpanded(t.Root, paths)
+	t.Flatten()
+}
+
+func (t *FileTree) restoreExpanded(node *FileNode, paths map[string]bool) {
+	for _, child := range node.Children {
+		if child.IsDir && paths[child.Path] {
+			// Load children if needed and expand
+			if len(child.Children) == 0 {
+				_ = t.loadChildren(child)
+			}
+			child.IsExpanded = true
+			t.restoreExpanded(child, paths)
+		}
+	}
+}
+
+// Refresh reloads the tree from disk, preserving expanded state.
 func (t *FileTree) Refresh() error {
-	return t.Build()
+	// Save expanded state before rebuild
+	expandedPaths := t.GetExpandedPaths()
+
+	// Rebuild tree
+	if err := t.Build(); err != nil {
+		return err
+	}
+
+	// Restore expanded state
+	t.RestoreExpandedPaths(expandedPaths)
+	return nil
 }
