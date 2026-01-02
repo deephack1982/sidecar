@@ -865,11 +865,20 @@ func extractFilePath(input string) string {
 
 // renderTwoPane renders the two-pane layout with sessions on the left and messages on the right.
 func (p *Plugin) renderTwoPane() string {
-	// Calculate pane widths - account for borders (2 per pane = 4 total) plus gap
-	available := p.width - 5
-	sidebarWidth := available * 30 / 100
+	// Clear hit regions for fresh registration
+	p.mouseHandler.HitMap.Clear()
+
+	// Calculate pane widths - account for borders (2 per pane = 4 total) plus gap and divider
+	available := p.width - 5 - dividerWidth
+	sidebarWidth := p.sidebarWidth
+	if sidebarWidth == 0 {
+		sidebarWidth = available * 30 / 100
+	}
 	if sidebarWidth < 25 {
 		sidebarWidth = 25
+	}
+	if sidebarWidth > available-40 {
+		sidebarWidth = available - 40
 	}
 	mainWidth := available - sidebarWidth
 	if mainWidth < 40 {
@@ -911,12 +920,44 @@ func (p *Plugin) renderTwoPane() string {
 		Height(paneHeight).
 		Render(sidebarContent)
 
+	// Render visible divider
+	divider := p.renderDivider(paneHeight)
+
 	rightPane := mainBorder.
 		Width(mainWidth).
 		Height(paneHeight).
 		Render(mainContent)
 
-	return lipgloss.JoinHorizontal(lipgloss.Top, leftPane, rightPane)
+	// Register hit regions (order matters: last = highest priority)
+	// Sidebar region - lowest priority fallback
+	p.mouseHandler.HitMap.AddRect(regionSidebar, 0, 0, sidebarWidth, p.height, nil)
+	// Main pane region (after divider) - medium priority
+	mainX := sidebarWidth + dividerWidth
+	p.mouseHandler.HitMap.AddRect(regionMainPane, mainX, 0, mainWidth, p.height, nil)
+	// Divider region - HIGH PRIORITY (registered last so it wins in overlap)
+	// Sidebar is Width(sidebarWidth), so occupies columns 0 to sidebarWidth-1
+	// Divider is at column sidebarWidth
+	dividerX := sidebarWidth
+	dividerHitWidth := 3
+	p.mouseHandler.HitMap.AddRect(regionPaneDivider, dividerX, 0, dividerHitWidth, p.height, nil)
+
+	return lipgloss.JoinHorizontal(lipgloss.Top, leftPane, divider, rightPane)
+}
+
+// renderDivider renders the visible divider between panes.
+func (p *Plugin) renderDivider(height int) string {
+	dividerStyle := lipgloss.NewStyle().
+		Foreground(styles.BorderNormal).
+		MarginTop(1) // Shifts down to align with pane content
+
+	var sb strings.Builder
+	for i := 0; i < height; i++ {
+		sb.WriteString("│")
+		if i < height-1 {
+			sb.WriteString("\n")
+		}
+	}
+	return dividerStyle.Render(sb.String())
 }
 
 // renderSidebarPane renders the session list for the sidebar.

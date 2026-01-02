@@ -151,6 +151,8 @@ case mouse.ActionDoubleClick:
 
 ### Drag to Resize
 
+> **See also:** `drag-pane-implementation-guide.md` for a complete step-by-step implementation guide with all the critical rules to avoid common bugs.
+
 ```go
 case mouse.ActionClick:
     if action.Region != nil && action.Region.ID == "divider" {

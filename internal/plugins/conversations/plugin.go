@@ -10,7 +10,9 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/marcus/sidecar/internal/adapter"
 	"github.com/marcus/sidecar/internal/app"
+	"github.com/marcus/sidecar/internal/mouse"
 	"github.com/marcus/sidecar/internal/plugin"
+	"github.com/marcus/sidecar/internal/state"
 )
 
 const (
@@ -23,6 +25,16 @@ const (
 	maxMessagesInMemory = 500
 
 	previewDebounce = 150 * time.Millisecond
+
+	// Divider width for pane separator
+	dividerWidth = 1
+)
+
+// Mouse hit region identifiers
+const (
+	regionSidebar     = "sidebar"
+	regionMainPane    = "main-pane"
+	regionPaneDivider = "pane-divider"
 )
 
 // View represents the current view mode.
@@ -45,9 +57,10 @@ const (
 
 // Plugin implements the conversations plugin.
 type Plugin struct {
-	ctx      *plugin.Context
-	adapters map[string]adapter.Adapter
-	focused  bool
+	ctx          *plugin.Context
+	adapters     map[string]adapter.Adapter
+	focused      bool
+	mouseHandler *mouse.Handler
 
 	// Current view
 	view View
@@ -109,6 +122,7 @@ func New() *Plugin {
 	return &Plugin{
 		pageSize:         defaultPageSize,
 		expandedThinking: make(map[string]bool),
+		mouseHandler:     mouse.NewHandler(),
 	}
 }
 
@@ -124,6 +138,11 @@ func (p *Plugin) Icon() string { return pluginIcon }
 // Init initializes the plugin with context.
 func (p *Plugin) Init(ctx *plugin.Context) error {
 	p.ctx = ctx
+
+	// Load persisted sidebar width
+	if savedWidth := state.GetConversationsSideWidth(); savedWidth > 0 {
+		p.sidebarWidth = savedWidth
+	}
 
 	p.adapters = make(map[string]adapter.Adapter)
 	for id, a := range ctx.Adapters {
@@ -160,6 +179,12 @@ func (p *Plugin) Stop() {
 // Update handles messages.
 func (p *Plugin) Update(msg tea.Msg) (plugin.Plugin, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.MouseMsg:
+		if p.twoPane {
+			return p.handleMouse(msg)
+		}
+		return p, nil
+
 	case tea.KeyMsg:
 		switch p.view {
 		case ViewMessageDetail:
@@ -811,12 +836,8 @@ func (p *Plugin) View(width, height int) string {
 
 	// Enable two-pane for wide terminals (>= 102 columns)
 	p.twoPane = width >= 102
-	if p.twoPane {
-		p.sidebarWidth = width * 30 / 100
-		if p.sidebarWidth < 25 {
-			p.sidebarWidth = 25
-		}
-	}
+	// Note: sidebarWidth is calculated in renderTwoPane, not here,
+	// to avoid resetting drag-adjusted widths on every render
 
 	var content string
 	if len(p.adapters) == 0 {
