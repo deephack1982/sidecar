@@ -2,7 +2,7 @@
 
 Terminal UI for monitoring AI coding agent sessions.
 
-**Status: Alpha** - Functional but expect rough edges and breaking changes.
+**Status: Beta** - Generally working for most use cases.
 
 ![Git Status](docs/screenshots/sidecar-git.png)
 
