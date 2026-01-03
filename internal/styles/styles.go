@@ -65,7 +65,7 @@ var (
 		Foreground(TextPrimary)
 
 	Subtitle = lipgloss.NewStyle().
-			Foreground(TextSecondary)
+			Foreground(lipgloss.Color("#D1D5DB")) // Brighter than TextSecondary for header visibility
 
 	Body = lipgloss.NewStyle().
 		Foreground(TextPrimary)

@@ -110,11 +110,19 @@ func (m Model) renderQuitConfirmOverlay(content string) string {
 
 // renderHeader renders the top bar with title, tabs, and clock.
 func (m Model) renderHeader() string {
+	// Calculate final title width (with repo name) - used for tab positioning
+	finalTitleWidth := lipgloss.Width(styles.BarTitle.Render(" Sidecar"))
+	if m.intro.RepoName != "" {
+		finalTitleWidth += lipgloss.Width(styles.Subtitle.Render(" / " + m.intro.RepoName))
+	}
+	finalTitleWidth += 1 // trailing space
+
 	// Title with optional repo name
 	var title string
 	if m.intro.Active {
-		// Use the animated/gradient title + fading repo name
-		title = styles.BarTitle.Render(" "+m.intro.View()) + m.intro.RepoNameView() + " "
+		// During animation, render into fixed-width container to keep tabs stable
+		titleContent := styles.BarTitle.Render(" "+m.intro.View()) + m.intro.RepoNameView() + " "
+		title = lipgloss.NewStyle().Width(finalTitleWidth).Render(titleContent)
 	} else {
 		// Static title with repo name
 		repoSuffix := ""
@@ -140,11 +148,10 @@ func (m Model) renderHeader() string {
 	// Clock
 	clock := styles.BarText.Render(m.ui.Clock.Format("15:04"))
 
-	// Calculate spacing
-	titleWidth := lipgloss.Width(title)
+	// Calculate spacing (always use finalTitleWidth so tabs don't shift)
 	tabWidth := lipgloss.Width(tabBar)
 	clockWidth := lipgloss.Width(clock)
-	spacing := m.width - titleWidth - tabWidth - clockWidth
+	spacing := m.width - finalTitleWidth - tabWidth - clockWidth
 
 	if spacing < 0 {
 		spacing = 0
@@ -159,18 +166,12 @@ func (m Model) renderHeader() string {
 // getTabBounds calculates the X position bounds for each tab in the header.
 // Used for mouse click detection on tabs.
 func (m Model) getTabBounds() []TabBounds {
-	// Title width (must match renderHeader logic)
-	var title string
-	if m.intro.Active {
-		title = styles.BarTitle.Render(" "+m.intro.View()) + m.intro.RepoNameView() + " "
-	} else {
-		repoSuffix := ""
-		if m.intro.RepoName != "" {
-			repoSuffix = styles.Subtitle.Render(" / " + m.intro.RepoName)
-		}
-		title = styles.BarTitle.Render(" Sidecar") + repoSuffix + " "
+	// Always use final title width (must match renderHeader logic)
+	titleWidth := lipgloss.Width(styles.BarTitle.Render(" Sidecar"))
+	if m.intro.RepoName != "" {
+		titleWidth += lipgloss.Width(styles.Subtitle.Render(" / " + m.intro.RepoName))
 	}
-	titleWidth := lipgloss.Width(title)
+	titleWidth += 1 // trailing space
 
 	// Calculate tab widths
 	plugins := m.registry.Plugins()
