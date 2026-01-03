@@ -150,24 +150,9 @@ func getSessionGroup(t time.Time) string {
 
 // renderSessionRow renders a single session row with enhanced stats.
 func (p *Plugin) renderSessionRow(session adapter.Session, selected bool) string {
-	// Sub-conversation indent (2 chars to offset the ↳ indicator)
-	indent := ""
-	if session.IsSubAgent {
-		indent = "  "
-	}
-
-	// Type indicator: active (●), sub-agent (↳), or space
-	typeIndicator := " "
-	if session.IsActive {
-		typeIndicator = styles.StatusInProgress.Render("●")
-	} else if session.IsSubAgent {
-		typeIndicator = styles.Muted.Render("↳")
-	}
-
 	badgeText := adapterBadgeText(session)
-	badge := styles.Muted.Render(badgeText)
 
-	// Conversation length (replaces timestamp column in list views)
+	// Conversation length
 	length := "--"
 	if session.Duration > 0 {
 		length = formatSessionDuration(session.Duration)
@@ -180,13 +165,7 @@ func (p *Plugin) renderSessionRow(session adapter.Session, selected bool) string
 		name = shortID(session.ID)
 	}
 
-	// Compose line style
-	lineStyle := styles.ListItemNormal
-	if selected {
-		lineStyle = styles.ListItemSelected
-	}
-
-	// Build the row: indent + active/sub + badge + length + name
+	// Calculate max name width
 	// Base overhead: indicator(1) + space(1) + badge + space(1) + length(6) + spaces(2)
 	overhead := 11 + len(badgeText)
 	if session.IsSubAgent {
@@ -197,12 +176,56 @@ func (p *Plugin) renderSessionRow(session adapter.Session, selected bool) string
 		name = name[:maxNameWidth-3] + "..."
 	}
 
-	return lineStyle.Render(fmt.Sprintf("%s%s %s %s  %s",
-		indent,
-		typeIndicator,
-		badge,
-		styles.Muted.Render(lengthCol),
-		name))
+	if selected {
+		// Plain text with selection background
+		var sb strings.Builder
+		if session.IsSubAgent {
+			sb.WriteString("  ")
+		}
+		if session.IsActive {
+			sb.WriteString("●")
+		} else if session.IsSubAgent {
+			sb.WriteString("↳")
+		} else {
+			sb.WriteString(" ")
+		}
+		sb.WriteString(badgeText)
+		sb.WriteString(" ")
+		sb.WriteString(lengthCol)
+		sb.WriteString("  ")
+		sb.WriteString(name)
+		return styles.ListItemSelected.Render(sb.String())
+	}
+
+	// Styled row for non-selected - differentiate top-level vs sub-agents
+	var sb strings.Builder
+	if session.IsSubAgent {
+		sb.WriteString("  ")
+	}
+	if session.IsActive {
+		sb.WriteString(styles.StatusInProgress.Render("●"))
+	} else if session.IsSubAgent {
+		sb.WriteString(styles.Muted.Render("↳"))
+	} else {
+		sb.WriteString(" ")
+	}
+
+	if session.IsSubAgent {
+		// Sub-agents: muted styling
+		sb.WriteString(styles.Muted.Render(badgeText))
+		sb.WriteString(" ")
+		sb.WriteString(styles.Muted.Render(lengthCol))
+		sb.WriteString("  ")
+		sb.WriteString(styles.Subtitle.Render(name))
+	} else {
+		// Top-level: prominent amber icons, bright text
+		sb.WriteString(styles.StatusModified.Render(badgeText))
+		sb.WriteString(" ")
+		sb.WriteString(styles.Subtitle.Render(lengthCol))
+		sb.WriteString("  ")
+		sb.WriteString(styles.Body.Render(name))
+	}
+	return sb.String()
 }
 
 // renderMessages renders the message view with enhanced header.
@@ -1138,51 +1161,92 @@ func (p *Plugin) renderCompactSessionRow(session adapter.Session, selected bool,
 		name = name[:nameWidth-3] + "..."
 	}
 
-	// Build the row content (without styling that interferes with selection background)
-	var sb strings.Builder
-
-	// Sub-agent indent (before indicator)
-	if session.IsSubAgent {
-		sb.WriteString("  ")
-	}
-
-	// Type indicator: active (●), sub-agent (↳), or space
-	if session.IsActive {
-		sb.WriteString("●")
-	} else if session.IsSubAgent {
-		sb.WriteString("↳")
-	} else {
-		sb.WriteString(" ")
-	}
-
-	sb.WriteString(badgeText)
-	sb.WriteString(" ")
-	sb.WriteString(name)
-
-	// Right-align length (compute padding based on visible widths).
+	// Calculate padding for right-aligned time
 	visibleLen := 0
 	if session.IsSubAgent {
 		visibleLen += 2
 	}
 	visibleLen += 1 // indicator
 	visibleLen += len(badgeText) + 1 + len(name) // badge + space + name
-	if padding := maxWidth - visibleLen - len(lengthCol) - 1; padding > 0 {
+	padding := maxWidth - visibleLen - len(lengthCol) - 1
+	if padding < 0 {
+		padding = 0
+	}
+
+	// Build the row with styling - differentiate top-level vs sub-agents
+	var sb strings.Builder
+
+	// Sub-agent indent
+	if session.IsSubAgent {
+		sb.WriteString("  ")
+	}
+
+	// Type indicator with colors
+	if session.IsActive {
+		sb.WriteString(styles.StatusInProgress.Render("●"))
+	} else if session.IsSubAgent {
+		sb.WriteString(styles.Muted.Render("↳"))
+	} else {
+		sb.WriteString(" ")
+	}
+
+	// Style based on session type
+	if session.IsSubAgent {
+		// Sub-agents: muted styling
+		sb.WriteString(styles.Muted.Render(badgeText))
+		sb.WriteString(" ")
+		sb.WriteString(styles.Subtitle.Render(name))
+	} else {
+		// Top-level: prominent amber icons, bright text
+		sb.WriteString(styles.StatusModified.Render(badgeText))
+		sb.WriteString(" ")
+		sb.WriteString(styles.Body.Render(name))
+	}
+
+	// Padding and time
+	if padding > 0 {
 		sb.WriteString(strings.Repeat(" ", padding))
 		sb.WriteString(" ")
-		sb.WriteString(lengthCol)
+		if session.IsSubAgent {
+			sb.WriteString(styles.Muted.Render(lengthCol))
+		} else {
+			sb.WriteString(styles.Subtitle.Render(lengthCol))
+		}
 	}
 
-	// Pad to full width for consistent selection highlighting
 	row := sb.String()
-	if len(row) < maxWidth {
-		row += strings.Repeat(" ", maxWidth-len(row))
+
+	// For selected rows, we need plain text with background
+	if selected {
+		// Build plain version for selection
+		var plain strings.Builder
+		if session.IsSubAgent {
+			plain.WriteString("  ")
+		}
+		if session.IsActive {
+			plain.WriteString("●")
+		} else if session.IsSubAgent {
+			plain.WriteString("↳")
+		} else {
+			plain.WriteString(" ")
+		}
+		plain.WriteString(badgeText)
+		plain.WriteString(" ")
+		plain.WriteString(name)
+		if padding > 0 {
+			plain.WriteString(strings.Repeat(" ", padding))
+			plain.WriteString(" ")
+			plain.WriteString(lengthCol)
+		}
+		plainRow := plain.String()
+		// Pad to full width
+		if len(plainRow) < maxWidth {
+			plainRow += strings.Repeat(" ", maxWidth-len(plainRow))
+		}
+		return styles.ListItemSelected.Render(plainRow)
 	}
 
-	// Apply selection background if selected
-	if selected {
-		return styles.ListItemSelected.Render(row)
-	}
-	return styles.Muted.Render(row)
+	return row
 }
 
 // renderMainPane renders the message list for the main pane.
