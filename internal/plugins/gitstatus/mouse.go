@@ -8,14 +8,13 @@ import (
 
 // Hit region IDs
 const (
-	regionSidebar          = "sidebar"
-	regionDiffPane         = "diff-pane"
-	regionPaneDivider      = "pane-divider"
-	regionFile             = "file"
-	regionCommit           = "commit"
-	regionCommitFile       = "commit-file"        // Files in commit preview pane
-	regionDiffModal = "diff-modal" // Full-screen diff view
-	regionStash     = "stash"     // Stash items in sidebar
+	regionSidebar     = "sidebar"
+	regionDiffPane    = "diff-pane"
+	regionPaneDivider = "pane-divider"
+	regionFile        = "file"
+	regionCommit      = "commit"
+	regionCommitFile  = "commit-file" // Files in commit preview pane
+	regionDiffModal   = "diff-modal"  // Full-screen diff view
 )
 
 // handleMouse processes mouse events in the status view.
@@ -103,15 +102,6 @@ func (p *Plugin) handleMouseClick(action mouse.MouseAction) (*Plugin, tea.Cmd) {
 			}
 		}
 		return p, nil
-
-	case regionStash:
-		// Click on stash - select it
-		if idx, ok := action.Region.Data.(int); ok {
-			if p.stashList != nil && idx < p.stashList.Count() {
-				p.stashCursor = idx
-			}
-		}
-		return p, nil
 	}
 
 	return p, nil
@@ -187,15 +177,6 @@ func (p *Plugin) handleMouseDoubleClick(action mouse.MouseAction) (*Plugin, tea.
 			}
 		}
 		return p, nil
-
-	case regionStash:
-		// Double-click on stash - pop it
-		if idx, ok := action.Region.Data.(int); ok {
-			if p.stashList != nil && idx < p.stashList.Count() {
-				return p, p.doStashPopIndex(idx)
-			}
-		}
-		return p, nil
 	}
 
 	return p, nil
@@ -212,7 +193,7 @@ func (p *Plugin) handleMouseScroll(action mouse.MouseAction) (*Plugin, tea.Cmd) 
 	}
 
 	switch action.Region.ID {
-	case regionSidebar, regionFile, regionCommit, regionStash:
+	case regionSidebar, regionFile, regionCommit:
 		return p.scrollSidebar(action.Delta)
 
 	case regionDiffPane, regionCommitFile:

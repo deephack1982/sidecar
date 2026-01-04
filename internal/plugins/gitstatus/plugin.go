@@ -119,11 +119,6 @@ type Plugin struct {
 	discardFile       *FileEntry // File being confirmed for discard
 	discardReturnMode ViewMode   // Mode to return to when modal closes
 
-	// Stash state
-	stashList      *StashList // Cached stash list
-	stashCursor    int        // Selected stash index for mouse interaction
-	stashScrollOff int        // Scroll offset for stash list
-
 	// Syntax highlighting
 	syntaxHighlighter     *SyntaxHighlighter // Cached highlighter for current file
 	syntaxHighlighterFile string             // File the highlighter was created for
@@ -148,7 +143,6 @@ func New() *Plugin {
 		sidebarVisible: true,
 		activePane:     PaneSidebar,
 		mouseHandler:   mouse.NewHandler(),
-		stashCursor:    -1, // No stash selected by default
 	}
 }
 
@@ -208,7 +202,6 @@ func (p *Plugin) Start() tea.Cmd {
 		p.refresh(),
 		p.startWatcher(),
 		p.loadRecentCommits(),
-		p.loadStashList(),
 	)
 }
 
@@ -357,17 +350,28 @@ func (p *Plugin) Update(msg tea.Msg) (plugin.Plugin, tea.Cmd) {
 		p.pushSuccess = false
 		return p, nil
 
-	case StashListLoadedMsg:
-		p.stashList = msg.List
-		return p, nil
-
-	case StashSuccessMsg:
-		// Stash operation succeeded, refresh state
-		return p, tea.Batch(p.refresh(), p.loadRecentCommits(), p.loadStashList())
-
-	case StashErrorMsg:
-		// TODO: Show error in UI
-		return p, nil
+	case StashResultMsg:
+		if msg.Err != nil {
+			// Show error toast
+			toastMsg := "Stash failed: " + msg.Err.Error()
+			return p, func() tea.Msg {
+				return app.ToastMsg{Message: toastMsg, Duration: 3 * time.Second, IsError: true}
+			}
+		}
+		// Show success toast and refresh
+		var toastMsg string
+		if msg.Operation == "push" {
+			toastMsg = "Stashed changes"
+		} else {
+			toastMsg = "Applied " + msg.Ref
+		}
+		return p, tea.Batch(
+			p.refresh(),
+			p.loadRecentCommits(),
+			func() tea.Msg {
+				return app.ToastMsg{Message: toastMsg, Duration: 2 * time.Second}
+			},
+		)
 
 	case BranchListLoadedMsg:
 		p.branches = msg.Branches
@@ -673,10 +677,8 @@ func (p *Plugin) updateStatus(msg tea.KeyMsg) (plugin.Plugin, tea.Cmd) {
 		}
 
 	case "Z":
-		// Pop latest stash (if there are stashes)
-		if p.stashList != nil && p.stashList.Count() > 0 {
-			return p, p.doStashPop()
-		}
+		// Pop latest stash (git errors if no stashes)
+		return p, p.doStashPop()
 
 	case "b":
 		// Open branch picker
@@ -1128,8 +1130,6 @@ func (p *Plugin) Commands() []plugin.Command {
 		{ID: "push", Name: "Push", Description: "Push commits to remote", Category: plugin.CategoryGit, Context: "git-status", Priority: 2},
 		{ID: "open-file", Name: "Open", Description: "Open file in editor", Category: plugin.CategoryActions, Context: "git-status", Priority: 3},
 		{ID: "discard-changes", Name: "Discard", Description: "Discard changes to file", Category: plugin.CategoryGit, Context: "git-status", Priority: 3},
-		{ID: "stash", Name: "Stash", Description: "Stash changes", Category: plugin.CategoryGit, Context: "git-status", Priority: 3},
-		{ID: "stash-pop", Name: "Pop", Description: "Pop latest stash", Category: plugin.CategoryGit, Context: "git-status", Priority: 3},
 		{ID: "branch-picker", Name: "Branch", Description: "Switch branch", Category: plugin.CategoryGit, Context: "git-status", Priority: 3},
 		{ID: "fetch", Name: "Fetch", Description: "Fetch from remote", Category: plugin.CategoryGit, Context: "git-status", Priority: 3},
 		{ID: "pull", Name: "Pull", Description: "Pull from remote", Category: plugin.CategoryGit, Context: "git-status", Priority: 3},
@@ -1408,19 +1408,11 @@ type PushStatusLoadedMsg struct {
 // PushSuccessClearMsg is sent to clear the push success indicator.
 type PushSuccessClearMsg struct{}
 
-// StashListLoadedMsg is sent when stash list is loaded.
-type StashListLoadedMsg struct {
-	List *StashList
-}
-
-// StashSuccessMsg is sent when a stash operation succeeds.
-type StashSuccessMsg struct {
-	Operation string // "push", "pop", "apply", "drop"
-}
-
-// StashErrorMsg is sent when a stash operation fails.
-type StashErrorMsg struct {
-	Err error
+// StashResultMsg is sent when a stash operation completes.
+type StashResultMsg struct {
+	Operation string // "push" or "pop"
+	Ref       string // stash ref for display (e.g. "stash@{0}")
+	Err       error
 }
 
 // BranchListLoadedMsg is sent when branch list is loaded.
@@ -1494,18 +1486,6 @@ func (p *Plugin) loadRecentCommits() tea.Cmd {
 			return RecentCommitsLoadedMsg{Commits: nil, PushStatus: nil}
 		}
 		return RecentCommitsLoadedMsg{Commits: commits, PushStatus: pushStatus}
-	}
-}
-
-// loadStashList loads the stash list.
-func (p *Plugin) loadStashList() tea.Cmd {
-	workDir := p.ctx.WorkDir
-	return func() tea.Msg {
-		list, err := GetStashList(workDir)
-		if err != nil {
-			return StashListLoadedMsg{List: nil}
-		}
-		return StashListLoadedMsg{List: list}
 	}
 }
 
@@ -1761,10 +1741,7 @@ func (p *Plugin) doStashPush() tea.Cmd {
 	workDir := p.ctx.WorkDir
 	return func() tea.Msg {
 		err := StashPush(workDir)
-		if err != nil {
-			return StashErrorMsg{Err: err}
-		}
-		return StashSuccessMsg{Operation: "push"}
+		return StashResultMsg{Operation: "push", Err: err}
 	}
 }
 
@@ -1773,28 +1750,10 @@ func (p *Plugin) doStashPop() tea.Cmd {
 	workDir := p.ctx.WorkDir
 	return func() tea.Msg {
 		err := StashPop(workDir)
-		if err != nil {
-			return StashErrorMsg{Err: err}
-		}
-		return StashSuccessMsg{Operation: "pop"}
+		return StashResultMsg{Operation: "pop", Ref: "stash@{0}", Err: err}
 	}
 }
 
-// doStashPopIndex pops a specific stash by index.
-func (p *Plugin) doStashPopIndex(idx int) tea.Cmd {
-	if p.stashList == nil || idx >= p.stashList.Count() {
-		return nil
-	}
-	ref := p.stashList.Stashes[idx].Ref
-	workDir := p.ctx.WorkDir
-	return func() tea.Msg {
-		err := StashPopRef(workDir, ref)
-		if err != nil {
-			return StashErrorMsg{Err: err}
-		}
-		return StashSuccessMsg{Operation: "pop"}
-	}
-}
 
 // doFetch fetches from remote.
 func (p *Plugin) doFetch() tea.Cmd {

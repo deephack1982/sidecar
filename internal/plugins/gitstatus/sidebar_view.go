@@ -141,10 +141,6 @@ func (p *Plugin) renderSidebar(visibleHeight int) string {
 			branch := p.pushStatus.CurrentBranch
 			// "Files " = 6 chars, leave 4 for padding = max branch length is sidebarWidth - 10
 			maxLen := p.sidebarWidth - 10
-			// If we have stashes, reserve space for stash indicator
-			if p.stashList != nil && p.stashList.Count() > 0 {
-				maxLen -= 6 // " [n]" space
-			}
 			if maxLen > 0 && len(branch) > maxLen {
 				branch = branch[:maxLen-1] + "…"
 			}
@@ -152,13 +148,6 @@ func (p *Plugin) renderSidebar(visibleHeight int) string {
 		} else if p.pushStatus.DetachedHead {
 			header += " " + styles.Muted.Render("(detached)")
 		}
-	}
-	// Add stash count indicator if there are stashes
-	if p.stashList != nil && p.stashList.Count() > 0 {
-		stashBadge := lipgloss.NewStyle().
-			Foreground(styles.StatusModified.GetForeground()).
-			Bold(true)
-		header += " " + stashBadge.Render(fmt.Sprintf("[%d]", p.stashList.Count()))
 	}
 	sb.WriteString(header)
 	sb.WriteString("\n\n")
@@ -272,28 +261,11 @@ func (p *Plugin) renderSidebar(visibleHeight int) string {
 
 	// Recent commits section
 	// Calculate available height for commits (remaining space minus header line)
-	// If we have stashes, reserve some space for them
-	stashReserve := 0
-	if p.stashList != nil && p.stashList.Count() > 0 {
-		stashReserve = 3 // header + 2 stash entries
-		if p.stashList.Count() > 2 {
-			stashReserve = 4 // +1 for "more..." indicator
-		}
-	}
-	commitsAvailable := visibleHeight - currentY + 3 - 1 - stashReserve // +3 to account for initial offset, -1 for header
+	commitsAvailable := visibleHeight - currentY + 3 - 1 // +3 to account for initial offset, -1 for header
 	if commitsAvailable < 2 {
 		commitsAvailable = 2
 	}
 	sb.WriteString(p.renderRecentCommits(&currentY, commitsAvailable))
-
-	// Stash section (if any stashes exist)
-	if p.stashList != nil && p.stashList.Count() > 0 {
-		sb.WriteString("\n")
-		// Don't increment currentY here - renderRecentCommits doesn't add trailing
-		// newline on last item, so this "\n" just moves cursor to where currentY
-		// already points. Incrementing would cause off-by-one in stash hit regions.
-		sb.WriteString(p.renderStashSection(&currentY, stashReserve-1)) // -1 for separator
-	}
 
 	return sb.String()
 }
@@ -489,68 +461,6 @@ func (p *Plugin) renderRecentCommits(currentY *int, maxVisible int) string {
 		if i < endIdx-1 {
 			sb.WriteString("\n")
 		}
-	}
-
-	return sb.String()
-}
-
-// renderStashSection renders the stash list in the sidebar.
-func (p *Plugin) renderStashSection(currentY *int, maxVisible int) string {
-	if p.stashList == nil || p.stashList.Count() == 0 {
-		return ""
-	}
-
-	var sb strings.Builder
-	maxWidth := p.sidebarWidth - 4
-
-	// Section header with stash count
-	header := fmt.Sprintf("Stashes (%d)", p.stashList.Count())
-	sb.WriteString(styles.Subtitle.Render(header))
-	sb.WriteString("\n")
-	*currentY++
-
-	// Show visible stashes
-	count := p.stashList.Count()
-	visible := maxVisible - 1 // -1 for header
-	if visible < 1 {
-		visible = 1
-	}
-	if visible > count {
-		visible = count
-	}
-
-	for i := 0; i < visible; i++ {
-		stash := p.stashList.Stashes[i]
-
-		// Register hit region for mouse support
-		p.mouseHandler.HitMap.AddRect(regionStash, 1, *currentY, p.sidebarWidth-2, 1, i)
-
-		// Format: stash@{n}: message
-		ref := styles.Code.Render(stash.Ref)
-		msg := stash.Message
-		msgWidth := maxWidth - len(stash.Ref) - 3
-		if len(msg) > msgWidth && msgWidth > 3 {
-			msg = msg[:msgWidth-1] + "…"
-		}
-
-		line := fmt.Sprintf("%s %s", ref, msg)
-		// Highlight selected stash
-		if i == p.stashCursor {
-			sb.WriteString(styles.ListItemSelected.Render(line))
-		} else {
-			sb.WriteString(styles.ListItemNormal.Render(line))
-		}
-		*currentY++
-		if i < visible-1 {
-			sb.WriteString("\n")
-		}
-	}
-
-	// Show "more" indicator if there are more stashes
-	if count > visible {
-		sb.WriteString("\n")
-		sb.WriteString(styles.Muted.Render(fmt.Sprintf("  +%d more", count-visible)))
-		*currentY++
 	}
 
 	return sb.String()
