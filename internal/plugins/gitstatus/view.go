@@ -172,12 +172,35 @@ func (p *Plugin) renderDiffModal() string {
 
 	var sb strings.Builder
 
-	// Header with view mode indicator
+	// Header with view mode indicator and scroll indicators
 	viewModeStr := "unified"
 	if p.diffViewMode == DiffViewSideBySide {
 		viewModeStr = "side-by-side"
 	}
-	header := fmt.Sprintf("Diff: %s [%s]", p.diffFile, viewModeStr)
+
+	// Calculate scroll indicators for side-by-side mode
+	scrollIndicator := ""
+	if p.diffViewMode == DiffViewSideBySide && p.parsedDiff != nil {
+		// Calculate content width for side-by-side (each panel)
+		panelWidth := (contentWidth - 3) / 2
+		lineNoWidth := 5
+		sideContentWidth := panelWidth - lineNoWidth - 2
+
+		clipInfo := GetSideBySideClipInfo(p.parsedDiff, sideContentWidth, p.diffHorizOff)
+		if clipInfo.HasMoreLeft || clipInfo.HasMoreRight {
+			leftArrow := " "
+			rightArrow := " "
+			if clipInfo.HasMoreLeft {
+				leftArrow = "◀"
+			}
+			if clipInfo.HasMoreRight {
+				rightArrow = "▶"
+			}
+			scrollIndicator = " " + styles.Muted.Render(leftArrow+rightArrow)
+		}
+	}
+
+	header := fmt.Sprintf("Diff: %s [%s]%s", p.diffFile, viewModeStr, scrollIndicator)
 	sb.WriteString(styles.ModalTitle.Render(header))
 	sb.WriteString("\n")
 	sb.WriteString(styles.Muted.Render(strings.Repeat("━", contentWidth)))
@@ -318,16 +341,45 @@ func (p *Plugin) renderDiffTwoPane() string {
 func (p *Plugin) renderFullDiffContent(visibleHeight int) string {
 	var sb strings.Builder
 
-	// Header with view mode indicator
+	// Width: pane content width - padding
+	diffWidth := p.diffPaneWidth - 4
+	if diffWidth < 40 {
+		diffWidth = 40
+	}
+
+	// Header with view mode indicator and scroll indicators
 	viewModeStr := "unified"
 	if p.diffViewMode == DiffViewSideBySide {
 		viewModeStr = "side-by-side"
 	}
 	header := "Diff"
 	if p.diffFile != "" {
-		header = truncateDiffPath(p.diffFile, p.diffPaneWidth-14)
+		header = truncateDiffPath(p.diffFile, p.diffPaneWidth-20) // Leave room for mode + indicators
 	}
-	header = fmt.Sprintf("%s [%s]", header, viewModeStr)
+
+	// Calculate scroll indicators for side-by-side mode
+	scrollIndicator := ""
+	if p.diffViewMode == DiffViewSideBySide && p.parsedDiff != nil {
+		// Calculate content width for side-by-side (each panel)
+		panelWidth := (diffWidth - 3) / 2
+		lineNoWidth := 5
+		contentWidth := panelWidth - lineNoWidth - 2
+
+		clipInfo := GetSideBySideClipInfo(p.parsedDiff, contentWidth, p.diffHorizOff)
+		if clipInfo.HasMoreLeft || clipInfo.HasMoreRight {
+			leftArrow := " "
+			rightArrow := " "
+			if clipInfo.HasMoreLeft {
+				leftArrow = "◀"
+			}
+			if clipInfo.HasMoreRight {
+				rightArrow = "▶"
+			}
+			scrollIndicator = " " + styles.Muted.Render(leftArrow+rightArrow)
+		}
+	}
+
+	header = fmt.Sprintf("%s [%s]%s", header, viewModeStr, scrollIndicator)
 	sb.WriteString(styles.Title.Render(header))
 	sb.WriteString("\n\n")
 
@@ -340,12 +392,6 @@ func (p *Plugin) renderFullDiffContent(visibleHeight int) string {
 	contentHeight := visibleHeight - 2
 	if contentHeight < 1 {
 		contentHeight = 1
-	}
-
-	// Width: pane content width - padding
-	diffWidth := p.diffPaneWidth - 4
-	if diffWidth < 40 {
-		diffWidth = 40
 	}
 
 	// Render diff based on view mode

@@ -32,6 +32,9 @@ func (p *Plugin) handleMouse(msg tea.MouseMsg) (*Plugin, tea.Cmd) {
 	case mouse.ActionScrollUp, mouse.ActionScrollDown:
 		return p.handleMouseScroll(action)
 
+	case mouse.ActionScrollLeft, mouse.ActionScrollRight:
+		return p.handleMouseHorizontalScroll(action)
+
 	case mouse.ActionDrag:
 		return p.handleMouseDrag(action)
 
@@ -293,6 +296,34 @@ func (p *Plugin) scrollDiffPane(delta int) (*Plugin, tea.Cmd) {
 	return p, nil
 }
 
+// handleMouseHorizontalScroll handles horizontal scroll events in the diff pane.
+func (p *Plugin) handleMouseHorizontalScroll(action mouse.MouseAction) (*Plugin, tea.Cmd) {
+	// Only horizontal scroll in diff pane regions
+	if action.Region == nil {
+		// No hit region - use X position to determine if in diff pane
+		if action.X >= p.sidebarWidth+2 {
+			return p.scrollDiffPaneHorizontal(action.Delta)
+		}
+		return p, nil
+	}
+
+	switch action.Region.ID {
+	case regionDiffPane, regionDiffModal:
+		return p.scrollDiffPaneHorizontal(action.Delta)
+	}
+
+	return p, nil
+}
+
+// scrollDiffPaneHorizontal scrolls the diff pane horizontally.
+func (p *Plugin) scrollDiffPaneHorizontal(delta int) (*Plugin, tea.Cmd) {
+	p.diffPaneHorizScroll += delta
+	if p.diffPaneHorizScroll < 0 {
+		p.diffPaneHorizScroll = 0
+	}
+	return p, nil
+}
+
 // handleMouseDrag handles drag motion events.
 func (p *Plugin) handleMouseDrag(action mouse.MouseAction) (*Plugin, tea.Cmd) {
 	if p.mouseHandler.DragRegion() == regionPaneDivider {
@@ -347,6 +378,13 @@ func (p *Plugin) handleDiffMouse(msg tea.MouseMsg) (*Plugin, tea.Cmd) {
 		}
 		if p.diffScroll > maxScroll {
 			p.diffScroll = maxScroll
+		}
+
+	case mouse.ActionScrollLeft, mouse.ActionScrollRight:
+		// Horizontal scroll for side-by-side view
+		p.diffHorizOff += action.Delta
+		if p.diffHorizOff < 0 {
+			p.diffHorizOff = 0
 		}
 	}
 

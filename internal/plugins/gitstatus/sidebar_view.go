@@ -563,16 +563,46 @@ func (p *Plugin) renderDiffPane(visibleHeight int) string {
 
 	var sb strings.Builder
 
-	// Header with view mode indicator
+	// Width: pane content width - padding (2) - extra buffer (2)
+	// The pane style applies Padding(0,1) which takes 2 chars from content area
+	diffWidth := p.diffPaneWidth - 4
+	if diffWidth < 40 {
+		diffWidth = 40
+	}
+
+	// Header with view mode and scroll indicators
 	viewModeStr := "unified"
 	if p.diffPaneViewMode == DiffViewSideBySide {
 		viewModeStr = "split"
 	}
 	header := "Diff"
 	if p.selectedDiffFile != "" {
-		header = truncateDiffPath(p.selectedDiffFile, p.diffPaneWidth-14) // Leave room for mode
+		header = truncateDiffPath(p.selectedDiffFile, p.diffPaneWidth-20) // Leave room for mode + indicators
 	}
-	header = fmt.Sprintf("%s [%s]", header, viewModeStr)
+
+	// Calculate scroll indicators for side-by-side mode
+	scrollIndicator := ""
+	if p.diffPaneViewMode == DiffViewSideBySide && p.diffPaneParsedDiff != nil {
+		// Calculate content width for side-by-side (each panel)
+		panelWidth := (diffWidth - 3) / 2
+		lineNoWidth := 5
+		contentWidth := panelWidth - lineNoWidth - 2
+
+		clipInfo := GetSideBySideClipInfo(p.diffPaneParsedDiff, contentWidth, p.diffPaneHorizScroll)
+		if clipInfo.HasMoreLeft || clipInfo.HasMoreRight {
+			leftArrow := " "
+			rightArrow := " "
+			if clipInfo.HasMoreLeft {
+				leftArrow = "◀"
+			}
+			if clipInfo.HasMoreRight {
+				rightArrow = "▶"
+			}
+			scrollIndicator = " " + styles.Muted.Render(leftArrow+rightArrow)
+		}
+	}
+
+	header = fmt.Sprintf("%s [%s]%s", header, viewModeStr, scrollIndicator)
 	sb.WriteString(styles.Title.Render(header))
 	sb.WriteString("\n\n")
 
@@ -590,13 +620,6 @@ func (p *Plugin) renderDiffPane(visibleHeight int) string {
 	contentHeight := visibleHeight - 2 // Account for header
 	if contentHeight < 1 {
 		contentHeight = 1
-	}
-
-	// Width: pane content width - padding (2) - extra buffer (2)
-	// The pane style applies Padding(0,1) which takes 2 chars from content area
-	diffWidth := p.diffPaneWidth - 4
-	if diffWidth < 40 {
-		diffWidth = 40
 	}
 
 	// Render diff based on view mode

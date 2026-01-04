@@ -73,26 +73,39 @@ func RenderLineDiff(diff *ParsedDiff, width, startLine, maxLines, horizontalOffs
 		Align(lipgloss.Right)
 
 	contentWidth := width - (lineNoWidth*2 + 4) // Two line numbers + separators
+	isFirstHunk := true
 
 	for _, hunk := range diff.Hunks {
 		// Skip until we reach the start line
 		if lineNum < startLine {
 			lineNum++
 			if lineNum > startLine {
+				// Add blank line before hunk header (except first)
+				if !isFirstHunk && rendered < maxLines {
+					sb.WriteString("\n")
+					rendered++
+				}
 				// Render hunk header
 				header := truncateLine(fmt.Sprintf("@@ -%d,%d +%d,%d @@%s",
 					hunk.OldStart, hunk.OldCount, hunk.NewStart, hunk.NewCount, hunk.Header), contentWidth)
 				sb.WriteString(hunkHeaderStyle.Render(header))
 				sb.WriteString("\n")
 				rendered++
+				isFirstHunk = false
 			}
 		} else {
+			// Add blank line before hunk header (except first)
+			if !isFirstHunk && rendered < maxLines {
+				sb.WriteString("\n")
+				rendered++
+			}
 			// Render hunk header
 			header := truncateLine(fmt.Sprintf("@@ -%d,%d +%d,%d @@%s",
 				hunk.OldStart, hunk.OldCount, hunk.NewStart, hunk.NewCount, hunk.Header), contentWidth)
 			sb.WriteString(hunkHeaderStyle.Render(header))
 			sb.WriteString("\n")
 			rendered++
+			isFirstHunk = false
 		}
 
 		if rendered >= maxLines {
@@ -164,6 +177,7 @@ func RenderSideBySide(diff *ParsedDiff, width, startLine, maxLines, horizontalOf
 		Width(lineNoWidth).
 		Align(lipgloss.Right)
 
+	isFirstHunk := true
 	for _, hunk := range diff.Hunks {
 		if rendered >= maxLines {
 			break
@@ -171,11 +185,17 @@ func RenderSideBySide(diff *ParsedDiff, width, startLine, maxLines, horizontalOf
 
 		// Render hunk header across both panels
 		if lineNum >= startLine {
+			// Add blank line before hunk header (except first)
+			if !isFirstHunk && rendered < maxLines {
+				sb.WriteString("\n")
+				rendered++
+			}
 			header := fmt.Sprintf("@@ -%d,%d +%d,%d @@",
 				hunk.OldStart, hunk.OldCount, hunk.NewStart, hunk.NewCount)
 			sb.WriteString(hunkHeaderStyle.Render(padRight(header, width-1)))
 			sb.WriteString("\n")
 			rendered++
+			isFirstHunk = false
 		}
 		lineNum++
 
@@ -521,4 +541,36 @@ func applyHorizontalOffset(s string, offset int) string {
 		return ""
 	}
 	return string(runes[offset:])
+}
+
+// SideBySideClipInfo contains information about horizontal clipping state.
+type SideBySideClipInfo struct {
+	HasMoreLeft     bool // True if scrolled right (horizOffset > 0)
+	HasMoreRight    bool // True if content extends beyond visible width
+	MaxContentWidth int  // Maximum width of any line in the diff
+}
+
+// GetSideBySideClipInfo calculates clipping info for a side-by-side diff.
+// contentWidth is the width available for each side's content (after line numbers).
+func GetSideBySideClipInfo(diff *ParsedDiff, contentWidth, horizontalOffset int) SideBySideClipInfo {
+	if diff == nil || diff.Binary {
+		return SideBySideClipInfo{}
+	}
+
+	// Calculate max content width across all lines
+	maxWidth := 0
+	for _, hunk := range diff.Hunks {
+		for _, line := range hunk.Lines {
+			lineWidth := lipgloss.Width(line.Content)
+			if lineWidth > maxWidth {
+				maxWidth = lineWidth
+			}
+		}
+	}
+
+	return SideBySideClipInfo{
+		HasMoreLeft:     horizontalOffset > 0,
+		HasMoreRight:    maxWidth > contentWidth+horizontalOffset,
+		MaxContentWidth: maxWidth,
+	}
 }

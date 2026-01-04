@@ -190,6 +190,16 @@ func (h *Handler) HandleMouse(msg tea.MouseMsg) MouseAction {
 		}
 		if msg.Button == tea.MouseButtonWheelUp {
 			region := h.HitMap.Test(msg.X, msg.Y)
+			// Shift+scroll = horizontal scroll
+			if msg.Shift {
+				return MouseAction{
+					Type:   ActionScrollLeft,
+					Region: region,
+					X:      msg.X,
+					Y:      msg.Y,
+					Delta:  -10,
+				}
+			}
 			return MouseAction{
 				Type:   ActionScrollUp,
 				Region: region,
@@ -200,12 +210,43 @@ func (h *Handler) HandleMouse(msg tea.MouseMsg) MouseAction {
 		}
 		if msg.Button == tea.MouseButtonWheelDown {
 			region := h.HitMap.Test(msg.X, msg.Y)
+			// Shift+scroll = horizontal scroll
+			if msg.Shift {
+				return MouseAction{
+					Type:   ActionScrollRight,
+					Region: region,
+					X:      msg.X,
+					Y:      msg.Y,
+					Delta:  10,
+				}
+			}
 			return MouseAction{
 				Type:   ActionScrollDown,
 				Region: region,
 				X:      msg.X,
 				Y:      msg.Y,
 				Delta:  3,
+			}
+		}
+		// Native horizontal scroll (trackpad) - reversed for Mac natural scrolling
+		if msg.Button == tea.MouseButtonWheelLeft {
+			region := h.HitMap.Test(msg.X, msg.Y)
+			return MouseAction{
+				Type:   ActionScrollRight,
+				Region: region,
+				X:      msg.X,
+				Y:      msg.Y,
+				Delta:  10,
+			}
+		}
+		if msg.Button == tea.MouseButtonWheelRight {
+			region := h.HitMap.Test(msg.X, msg.Y)
+			return MouseAction{
+				Type:   ActionScrollLeft,
+				Region: region,
+				X:      msg.X,
+				Y:      msg.Y,
+				Delta:  -10,
 			}
 		}
 
@@ -248,6 +289,8 @@ const (
 	ActionDoubleClick
 	ActionScrollUp
 	ActionScrollDown
+	ActionScrollLeft  // Shift+scroll up = scroll left
+	ActionScrollRight // Shift+scroll down = scroll right
 	ActionDrag
 	ActionDragEnd
 	ActionHover
