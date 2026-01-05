@@ -772,6 +772,8 @@ func resumeCommand(session *adapter.Session) string {
 		return fmt.Sprintf("opencode --continue -s %s", session.ID)
 	case "gemini-cli":
 		return fmt.Sprintf("gemini --resume %s", session.ID)
+	case "cursor-cli":
+		return fmt.Sprintf("cursor-agent --resume %s", session.ID)
 	default:
 		return ""
 	}
@@ -781,12 +783,16 @@ func resumeCommand(session *adapter.Session) string {
 func modelShortName(model string) string {
 	model = strings.ToLower(model)
 	switch {
+	// Claude models (cursor uses "claude-4.5-opus-high-thinking" etc.)
 	case strings.Contains(model, "opus"):
 		return "opus"
+	case strings.Contains(model, "sonnet-4") || strings.Contains(model, "sonnet4"):
+		return "sonnet4"
 	case strings.Contains(model, "sonnet"):
 		return "sonnet"
 	case strings.Contains(model, "haiku"):
 		return "haiku"
+	// GPT models
 	case strings.HasPrefix(model, "gpt-"):
 		parts := strings.Split(model, "-")
 		if len(parts) > 1 {
@@ -799,10 +805,13 @@ func modelShortName(model string) string {
 			return parts[0]
 		}
 		return "o"
-	case strings.Contains(model, "gemini-3-pro"):
+	// Gemini models
+	case strings.Contains(model, "gemini-3-pro") || strings.Contains(model, "gemini3-pro"):
 		return "3Pro"
-	case strings.Contains(model, "gemini-3-flash"):
+	case strings.Contains(model, "gemini-3-flash") || strings.Contains(model, "gemini3-flash"):
 		return "3Flash"
+	case strings.Contains(model, "gemini-3") || strings.Contains(model, "gemini3"):
+		return "gemini3"
 	case strings.Contains(model, "gemini-2.0-flash"):
 		return "2Flash"
 	case strings.Contains(model, "gemini-1.5-pro"):
@@ -811,6 +820,7 @@ func modelShortName(model string) string {
 		return "1.5Flash"
 	case strings.HasPrefix(model, "gemini"):
 		return "gemini"
+	// Other models
 	case strings.HasPrefix(model, "grok"):
 		return "grok"
 	case strings.HasPrefix(model, "deepseek"):

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -124,12 +125,12 @@ func (a *Adapter) Sessions(projectRoot string) ([]adapter.Session, error) {
 		// Get first user message for title
 		firstUserMsg := a.getFirstUserMessage(dbPath)
 
-		// Use first user message as name if meta.Name is empty
+		// Use first user message as name if meta.Name is empty or "New Agent"
 		name := meta.Name
-		if name == "" && firstUserMsg != "" {
+		if (name == "" || name == "New Agent") && firstUserMsg != "" {
 			name = truncateTitle(firstUserMsg, 50)
 		}
-		if name == "" {
+		if name == "" || name == "New Agent" {
 			name = shortID(meta.AgentID)
 		}
 
@@ -308,6 +309,28 @@ func (a *Adapter) parseMessages(dbPath string) ([]adapter.Message, error) {
 	var messages []adapter.Message
 	a.collectMessages(blobs, meta.LatestRootBlobID, &messages)
 
+	// Interpolate timestamps: use createdAt for first, file mtime for last
+	if len(messages) > 0 {
+		startTime := meta.CreatedTime()
+		endTime := startTime
+
+		// Get file modification time for end timestamp
+		if info, err := os.Stat(dbPath); err == nil {
+			endTime = info.ModTime()
+		}
+
+		// Interpolate timestamps across messages
+		if len(messages) == 1 {
+			messages[0].Timestamp = startTime
+		} else {
+			duration := endTime.Sub(startTime)
+			for i := range messages {
+				progress := float64(i) / float64(len(messages)-1)
+				messages[i].Timestamp = startTime.Add(time.Duration(progress * float64(duration)))
+			}
+		}
+	}
+
 	return messages, nil
 }
 
@@ -322,6 +345,14 @@ func (a *Adapter) collectMessages(blobs map[string][]byte, blobID string, messag
 	if data[0] == '{' {
 		msg, err := a.parseMessageBlob(data)
 		if err == nil && (msg.Role == "user" || msg.Role == "assistant") {
+			// Skip system context messages (have system tags but no user content)
+			if msg.Role == "user" && isSystemContextMessage(msg.Content) {
+				return
+			}
+			// Skip empty messages
+			if msg.Content == "" && len(msg.ToolUses) == 0 {
+				return
+			}
 			*messages = append(*messages, msg)
 		}
 		return
@@ -349,6 +380,14 @@ func (a *Adapter) collectMessages(blobs map[string][]byte, blobID string, messag
 		if jsonStart < len(data) {
 			msg, err := a.parseMessageBlob(data[jsonStart:])
 			if err == nil && (msg.Role == "user" || msg.Role == "assistant") {
+				// Skip system context messages
+				if msg.Role == "user" && isSystemContextMessage(msg.Content) {
+					return
+				}
+				// Skip empty messages
+				if msg.Content == "" && len(msg.ToolUses) == 0 {
+					return
+				}
 				*messages = append(*messages, msg)
 			}
 		}
@@ -368,41 +407,60 @@ func (a *Adapter) parseMessageBlob(data []byte) (adapter.Message, error) {
 	}
 
 	// Parse content
-	content, toolUses, thinkingBlocks := a.parseContent(blob.Content)
+	content, toolUses, thinkingBlocks, model := a.parseContent(blob.Content)
 	msg.Content = content
 	msg.ToolUses = toolUses
 	msg.ThinkingBlocks = thinkingBlocks
+	msg.Model = model
 
 	return msg, nil
 }
 
 // parseContent extracts text content, tool uses, and thinking blocks from the content field.
-func (a *Adapter) parseContent(rawContent json.RawMessage) (string, []adapter.ToolUse, []adapter.ThinkingBlock) {
+// Also extracts model name from providerOptions if present.
+func (a *Adapter) parseContent(rawContent json.RawMessage) (string, []adapter.ToolUse, []adapter.ThinkingBlock, string) {
 	if len(rawContent) == 0 {
-		return "", nil, nil
+		return "", nil, nil, ""
 	}
 
-	// Try parsing as string first
+	// Try parsing as string first (first user message format)
 	var strContent string
 	if err := json.Unmarshal(rawContent, &strContent); err == nil {
-		return strContent, nil, nil
+		// Extract user query from XML tags if present
+		if query := extractUserQuery(strContent); query != "" {
+			return query, nil, nil, ""
+		}
+		return strContent, nil, nil, ""
 	}
 
-	// Parse as array of content blocks
+	// Parse as array of content blocks (subsequent messages)
 	var blocks []ContentBlock
 	if err := json.Unmarshal(rawContent, &blocks); err != nil {
-		return "", nil, nil
+		return "", nil, nil, ""
 	}
 
 	var texts []string
 	var toolUses []adapter.ToolUse
 	var thinkingBlocks []adapter.ThinkingBlock
+	var model string
 	toolResultCount := 0
 
 	for _, block := range blocks {
+		// Extract model from providerOptions
+		if block.ProviderOptions != nil && block.ProviderOptions.Cursor != nil {
+			if block.ProviderOptions.Cursor.ModelName != "" && model == "" {
+				model = block.ProviderOptions.Cursor.ModelName
+			}
+		}
+
 		switch block.Type {
 		case "text":
-			texts = append(texts, block.Text)
+			// Extract user query from XML tags if present
+			if query := extractUserQuery(block.Text); query != "" {
+				texts = append(texts, query)
+			} else {
+				texts = append(texts, block.Text)
+			}
 		case "reasoning":
 			thinkingBlocks = append(thinkingBlocks, adapter.ThinkingBlock{
 				Content:    block.Text,
@@ -435,7 +493,7 @@ func (a *Adapter) parseContent(rawContent json.RawMessage) (string, []adapter.To
 		content = fmt.Sprintf("[%d tool result(s)]", toolResultCount)
 	}
 
-	return content, toolUses, thinkingBlocks
+	return content, toolUses, thinkingBlocks, model
 }
 
 // shortID returns the first 8 characters of an ID, or the full ID if shorter.
@@ -457,4 +515,37 @@ func truncateTitle(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen-3] + "..."
+}
+
+// extractUserQuery extracts the user's query from XML-tagged content.
+// Returns the query text or empty string if no <user_query> tag found.
+func extractUserQuery(content string) string {
+	start := strings.Index(content, "<user_query>")
+	end := strings.Index(content, "</user_query>")
+	if start >= 0 && end > start {
+		query := content[start+len("<user_query>") : end]
+		return strings.TrimSpace(query)
+	}
+	return ""
+}
+
+// isSystemContextMessage returns true if this is the first message with system context only.
+// These messages contain OS info, project layout, git status, rules but no user query.
+func isSystemContextMessage(content string) bool {
+	hasSystemTags := strings.Contains(content, "<user_info>") ||
+		strings.Contains(content, "<project_layout>") ||
+		strings.Contains(content, "<git_status>")
+	hasUserQuery := strings.Contains(content, "<user_query>")
+	return hasSystemTags && !hasUserQuery
+}
+
+// stripXMLTags removes XML tags from content and extracts user query if present.
+func stripXMLTags(s string) string {
+	// First try to extract user query
+	if query := extractUserQuery(s); query != "" {
+		return query
+	}
+	// Remove all XML tags
+	re := regexp.MustCompile(`<[^>]+>`)
+	return strings.TrimSpace(re.ReplaceAllString(s, ""))
 }

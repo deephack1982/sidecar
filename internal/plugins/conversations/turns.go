@@ -1,6 +1,9 @@
 package conversations
 
 import (
+	"regexp"
+	"strings"
+
 	"github.com/marcus/sidecar/internal/adapter"
 )
 
@@ -33,7 +36,10 @@ func (t *Turn) Preview(maxLen int) string {
 	}
 	for _, msg := range t.Messages {
 		if msg.Content != "" && msg.Content != "[1 tool result(s)]" {
-			content := msg.Content
+			content := stripXMLTags(msg.Content)
+			if content == "" {
+				continue
+			}
 			if len(content) > maxLen {
 				return content[:maxLen-3] + "..."
 			}
@@ -42,13 +48,26 @@ func (t *Turn) Preview(maxLen int) string {
 	}
 	// Fallback: show tool result count or first content
 	if len(t.Messages) > 0 && t.Messages[0].Content != "" {
-		content := t.Messages[0].Content
+		content := stripXMLTags(t.Messages[0].Content)
 		if len(content) > maxLen {
 			return content[:maxLen-3] + "..."
 		}
 		return content
 	}
 	return ""
+}
+
+// stripXMLTags removes XML tags from content and extracts user query if present.
+func stripXMLTags(s string) string {
+	// First try to extract user query
+	start := strings.Index(s, "<user_query>")
+	end := strings.Index(s, "</user_query>")
+	if start >= 0 && end > start {
+		return strings.TrimSpace(s[start+len("<user_query>") : end])
+	}
+	// Remove all XML tags
+	re := regexp.MustCompile(`<[^>]+>`)
+	return strings.TrimSpace(re.ReplaceAllString(s, ""))
 }
 
 // GroupMessagesIntoTurns groups consecutive messages by role into turns.
