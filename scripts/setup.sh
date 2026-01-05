@@ -116,12 +116,34 @@ try_install_gum() {
         return 0
     fi
 
-    # Try to install gum
-    if [[ "$PLATFORM" == "macos" ]] && command -v brew &> /dev/null; then
-        echo "Installing gum for better UI..."
-        if brew install gum &> /dev/null; then
-            USE_GUM=true
-            return 0
+    # Try to install gum (terminal UI toolkit for nicer prompts/spinners)
+    local install_cmd=""
+    local install_name="gum"
+
+    if command -v brew &> /dev/null; then
+        install_cmd="brew install gum"
+    elif command -v nix-env &> /dev/null; then
+        install_cmd="nix-env -iA nixpkgs.gum"
+    elif command -v apt &> /dev/null; then
+        # gum requires adding the charm repo on Debian/Ubuntu
+        install_cmd=""  # Skip - too complex for auto-install
+    elif command -v dnf &> /dev/null; then
+        install_cmd="dnf install -y gum"
+    elif command -v pacman &> /dev/null; then
+        install_cmd="pacman -S --noconfirm gum"
+    fi
+
+    if [[ -n "$install_cmd" ]]; then
+        echo ""
+        echo "Installing gum (terminal UI toolkit for better prompts)..."
+        echo "  This may take a minute..."
+        echo ""
+        if $install_cmd 2>&1 | head -20; then
+            if command -v gum &> /dev/null; then
+                USE_GUM=true
+                echo "Done."
+                return 0
+            fi
         fi
     fi
 
@@ -216,13 +238,21 @@ choose() {
 spin() {
     local title="$1"
     shift
+    local ret
 
     if $USE_GUM; then
         gum spin --spinner dot --title "$title" -- "$@"
+        ret=$?
     else
         echo "$title"
         "$@"
+        ret=$?
     fi
+
+    if [[ $ret -ne 0 ]]; then
+        style_error "Command failed (exit code $ret)"
+    fi
+    return $ret
 }
 
 # Version helpers
@@ -235,12 +265,23 @@ get_go_version() {
 }
 
 get_td_version() {
+    local td_bin
+    # Check PATH first, then check go bin directory directly
     if command -v td &> /dev/null; then
-        # Try --short first (new), fall back to parsing version output
+        td_bin="td"
+    elif command -v go &> /dev/null; then
+        local go_bin
+        go_bin=$(get_go_bin)
+        if [[ -x "$go_bin/td" ]]; then
+            td_bin="$go_bin/td"
+        fi
+    fi
+
+    if [[ -n "$td_bin" ]]; then
         local v
-        v=$(td version --short 2>/dev/null || true)
+        v=$("$td_bin" version --short 2>/dev/null || true)
         if [[ -z "$v" ]]; then
-            v=$(td version 2>/dev/null | head -1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' || true)
+            v=$("$td_bin" version 2>/dev/null | head -1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' || true)
         fi
         echo "$v"
     else
@@ -249,8 +290,20 @@ get_td_version() {
 }
 
 get_sidecar_version() {
+    local sidecar_bin
+    # Check PATH first, then check go bin directory directly
     if command -v sidecar &> /dev/null; then
-        sidecar --version 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo ""
+        sidecar_bin="sidecar"
+    elif command -v go &> /dev/null; then
+        local go_bin
+        go_bin=$(get_go_bin)
+        if [[ -x "$go_bin/sidecar" ]]; then
+            sidecar_bin="$go_bin/sidecar"
+        fi
+    fi
+
+    if [[ -n "$sidecar_bin" ]]; then
+        "$sidecar_bin" --version 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo ""
     else
         echo ""
     fi
@@ -274,7 +327,9 @@ version_gte() {
 
 # Check if PATH includes go/bin
 check_go_path() {
-    echo "$PATH" | tr ':' '\n' | grep -q "$HOME/go/bin"
+    local go_bin
+    go_bin=$(get_go_bin)
+    echo "$PATH" | tr ':' '\n' | grep -qF "$go_bin"
 }
 
 get_shell_rc() {
@@ -291,6 +346,18 @@ get_shell_rc() {
             ;;
         *) echo "$HOME/.profile" ;;
     esac
+}
+
+get_go_bin() {
+    local gobin
+    gobin=$(go env GOBIN 2>/dev/null)
+    if [[ -n "$gobin" ]]; then
+        echo "$gobin"
+    else
+        local gopath
+        gopath=$(go env GOPATH 2>/dev/null)
+        echo "${gopath:-$HOME/go}/bin"
+    fi
 }
 
 # Main installation flow
@@ -388,25 +455,40 @@ main() {
         style_warning "Go is required but not installed."
         echo ""
 
-        if [[ "$PLATFORM" == "macos" ]] && command -v brew &> /dev/null; then
+        # Detect available package manager
+        local go_install_cmd=""
+        if command -v brew &> /dev/null; then
+            go_install_cmd="brew install go"
+        elif command -v nix-env &> /dev/null; then
+            go_install_cmd="nix-env -iA nixpkgs.go"
+        elif command -v apt &> /dev/null; then
+            go_install_cmd="sudo apt update && sudo apt install -y golang"
+        elif command -v dnf &> /dev/null; then
+            go_install_cmd="sudo dnf install -y golang"
+        elif command -v pacman &> /dev/null; then
+            go_install_cmd="sudo pacman -S --noconfirm go"
+        fi
+
+        if [[ -n "$go_install_cmd" ]]; then
             echo "Will run:"
-            echo "  brew install go"
+            echo "  $go_install_cmd"
             echo ""
             if confirm "Run this command?"; then
-                spin "Installing Go..." brew install go
+                spin "Installing Go..." bash -c "$go_install_cmd"
                 GO_VERSION=$(get_go_version)
             else
                 echo ""
                 echo "Please install Go manually and run this script again."
-                echo "  macOS: brew install go"
-                echo "  Linux: sudo apt install golang (or your package manager)"
                 exit 1
             fi
         else
             echo "Please install Go 1.21+ and run this script again."
-            echo "  macOS: brew install go"
+            echo "  macOS:         brew install go"
+            echo "  Nix:           nix-env -iA nixpkgs.go"
             echo "  Ubuntu/Debian: sudo apt install golang"
-            echo "  Other: https://go.dev/dl/"
+            echo "  Fedora/RHEL:   sudo dnf install golang"
+            echo "  Arch:          sudo pacman -S go"
+            echo "  Other:         https://go.dev/dl/"
             exit 1
         fi
     elif ! version_gte "$GO_VERSION" "1.21"; then
@@ -415,29 +497,32 @@ main() {
     fi
 
     # Check PATH
+    local go_bin
+    go_bin=$(get_go_bin)
+
     if ! check_go_path; then
         echo ""
-        style_warning "~/go/bin is not in your PATH"
+        style_warning "$go_bin is not in your PATH"
         echo ""
 
         local shell_rc
         shell_rc=$(get_shell_rc)
 
         echo "Will add to $shell_rc:"
-        echo "  export PATH=\"\$HOME/go/bin:\$PATH\""
+        echo "  export PATH=\"$go_bin:\$PATH\""
         echo ""
 
         if confirm "Add to PATH?"; then
             echo "" >> "$shell_rc"
-            echo 'export PATH="$HOME/go/bin:$PATH"' >> "$shell_rc"
-            export PATH="$HOME/go/bin:$PATH"
+            echo "export PATH=\"$go_bin:\$PATH\"" >> "$shell_rc"
+            export PATH="$go_bin:$PATH"
             style_success "Added to $shell_rc"
             echo ""
             echo "Note: Run 'source $shell_rc' to apply in current shell."
         else
             echo ""
-            echo "Please add ~/go/bin to your PATH manually."
-            echo "  export PATH=\"\$HOME/go/bin:\$PATH\""
+            echo "Please add $go_bin to your PATH manually."
+            echo "  export PATH=\"$go_bin:\$PATH\""
         fi
     fi
 
