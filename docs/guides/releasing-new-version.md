@@ -39,19 +39,42 @@ go mod tidy
 grep replace go.mod && echo "ERROR: Remove replace directives before releasing!" && exit 1
 ```
 
-### 4. Create Tag
+### 4. Update CHANGELOG.md
+
+Add an entry for the new version at the top of `CHANGELOG.md`:
+
+```markdown
+## [vX.Y.Z] - YYYY-MM-DD
+
+### Features
+- New feature description
+
+### Bug Fixes
+- Fix description
+
+### Dependencies
+- Dependency update description
+```
+
+Commit the changelog update:
+```bash
+git add CHANGELOG.md
+git commit -m "docs: Update changelog for vX.Y.Z"
+```
+
+### 5. Create Tag
 
 ```bash
 git tag vX.Y.Z -m "Brief description of release"
 ```
 
-### 5. Push Tag
+### 6. Push Tag
 
 ```bash
-git push origin vX.Y.Z
+git push origin main && git push origin vX.Y.Z
 ```
 
-### 6. Create GitHub Release
+### 7. Create GitHub Release
 
 ```bash
 gh release create vX.Y.Z --title "vX.Y.Z" --notes "$(cat <<'EOF'
@@ -73,7 +96,7 @@ gh release create vX.Y.Z --title "vX.Y.Z" --notes ""
 # Then edit on GitHub
 ```
 
-### 7. Verify
+### 8. Verify
 
 ```bash
 # Check release exists
@@ -118,6 +141,7 @@ Dev versions (`devel`, `devel+hash`) skip the check.
 - [ ] Working tree clean
 - [ ] **td dependency updated to latest** (`go get github.com/marcus/td@latest`)
 - [ ] **No `replace` directives in go.mod**
+- [ ] **CHANGELOG.md updated** with new version entry
 - [ ] Version number follows semver
 - [ ] Tag created and pushed
 - [ ] GitHub release created with notes
