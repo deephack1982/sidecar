@@ -172,16 +172,24 @@ var (
 			Bold(true)
 )
 
-// Tab bar styles (using bar element primitives)
-var (
-	TabActive = BarChipActive.Padding(0, 2)
+// Tab rainbow colors (left to right: red → green → blue → purple)
+var TabRainbowColors = []struct {
+	R, G, B uint8
+}{
+	{220, 60, 60},   // Red
+	{60, 180, 80},   // Green
+	{60, 130, 220},  // Blue
+	{140, 80, 200},  // Purple
+}
 
-	// TabInactive uses TextSecondary for better contrast (vs TextMuted)
-	TabInactive = lipgloss.NewStyle().
-			Foreground(TextSecondary).
-			Background(BgTertiary).
-			Padding(0, 2)
-)
+// TabTextActive is the text color for active tabs
+var TabTextActive = lipgloss.NewStyle().
+	Foreground(TextPrimary).
+	Bold(true)
+
+// TabTextInactive is the text color for inactive tabs
+var TabTextInactive = lipgloss.NewStyle().
+	Foreground(lipgloss.Color("#1a1a1a")) // Dark text for muted tabs
 
 // Diff line styles
 var (
@@ -352,4 +360,89 @@ func LoadTheme(name string, overrides map[string]string) Theme {
 	}
 	// Future: Load theme from config file by name
 	return theme
+}
+
+// RenderGradientTab renders a tab label with a gradient background.
+// tabIndex is the 0-based index of this tab, totalTabs is the total count.
+// The gradient flows across all tabs: red → green → blue → purple.
+func RenderGradientTab(label string, tabIndex, totalTabs int, isActive bool) string {
+	if totalTabs == 0 {
+		totalTabs = 1
+	}
+
+	// Calculate position in the rainbow (0.0 to 1.0 across all tabs)
+	tabWidth := 1.0 / float64(totalTabs)
+	startPos := float64(tabIndex) * tabWidth
+	endPos := startPos + tabWidth
+
+	// Add padding to label
+	padded := "  " + label + "  "
+	chars := []rune(padded)
+	result := ""
+
+	for i, ch := range chars {
+		// Position within the rainbow for this character
+		charPos := startPos + (endPos-startPos)*float64(i)/float64(len(chars))
+
+		// Get interpolated color
+		r, g, b := interpolateRainbow(charPos)
+
+		// Mute colors for inactive tabs
+		if !isActive {
+			r = uint8(float64(r)*0.35 + 30)
+			g = uint8(float64(g)*0.35 + 30)
+			b = uint8(float64(b)*0.35 + 30)
+		}
+
+		// Create style for this character
+		bg := lipgloss.Color(sprintf("#%02x%02x%02x", r, g, b))
+		var style lipgloss.Style
+		if isActive {
+			style = lipgloss.NewStyle().Background(bg).Foreground(TextPrimary).Bold(true)
+		} else {
+			style = lipgloss.NewStyle().Background(bg).Foreground(lipgloss.Color("#cccccc"))
+		}
+		result += style.Render(string(ch))
+	}
+
+	return result
+}
+
+// interpolateRainbow returns RGB for a position 0.0-1.0 across the rainbow
+func interpolateRainbow(pos float64) (uint8, uint8, uint8) {
+	colors := TabRainbowColors
+	if len(colors) < 2 {
+		return 128, 128, 128
+	}
+
+	// Scale position to color index
+	scaled := pos * float64(len(colors)-1)
+	idx := int(scaled)
+	if idx >= len(colors)-1 {
+		idx = len(colors) - 2
+	}
+	frac := scaled - float64(idx)
+
+	// Interpolate between adjacent colors
+	c1, c2 := colors[idx], colors[idx+1]
+	r := uint8(float64(c1.R) + frac*(float64(c2.R)-float64(c1.R)))
+	g := uint8(float64(c1.G) + frac*(float64(c2.G)-float64(c1.G)))
+	b := uint8(float64(c1.B) + frac*(float64(c2.B)-float64(c1.B)))
+
+	return r, g, b
+}
+
+// sprintf is a local helper to avoid importing fmt just for color formatting
+func sprintf(format string, a ...interface{}) string {
+	// Simple hex formatter for RGB
+	if format == "#%02x%02x%02x" && len(a) == 3 {
+		r, g, b := a[0].(uint8), a[1].(uint8), a[2].(uint8)
+		const hex = "0123456789abcdef"
+		return string([]byte{'#',
+			hex[r>>4], hex[r&0xf],
+			hex[g>>4], hex[g&0xf],
+			hex[b>>4], hex[b&0xf],
+		})
+	}
+	return ""
 }

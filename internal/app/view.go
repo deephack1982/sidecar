@@ -126,16 +126,13 @@ func (m Model) renderHeader() string {
 		title = styles.BarTitle.Render(" Sidecar") + repoSuffix + " "
 	}
 
-	// Plugin tabs
+	// Plugin tabs (rainbow gradient)
 	plugins := m.registry.Plugins()
 	var tabs []string
 	for i, p := range plugins {
-		label := fmt.Sprintf(" %s ", p.Name())
-		if i == m.activePlugin {
-			tabs = append(tabs, styles.TabActive.Render(label))
-		} else {
-			tabs = append(tabs, styles.TabInactive.Render(label))
-		}
+		isActive := i == m.activePlugin
+		tab := styles.RenderGradientTab(p.Name(), i, len(plugins), isActive)
+		tabs = append(tabs, tab)
 	}
 	tabBar := strings.Join(tabs, " ")
 
@@ -167,18 +164,13 @@ func (m Model) getTabBounds() []TabBounds {
 	}
 	titleWidth += 1 // trailing space
 
-	// Calculate tab widths
+	// Calculate tab widths (using gradient renderer)
 	plugins := m.registry.Plugins()
 	var tabWidths []int
 	totalTabWidth := 0
 	for i, p := range plugins {
-		label := fmt.Sprintf(" %s ", p.Name())
-		var tab string
-		if i == m.activePlugin {
-			tab = styles.TabActive.Render(label)
-		} else {
-			tab = styles.TabInactive.Render(label)
-		}
+		isActive := i == m.activePlugin
+		tab := styles.RenderGradientTab(p.Name(), i, len(plugins), isActive)
 		w := lipgloss.Width(tab)
 		tabWidths = append(tabWidths, w)
 		totalTabWidth += w
