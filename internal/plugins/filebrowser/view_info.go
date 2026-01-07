@@ -17,10 +17,6 @@ func (p *Plugin) renderInfoModalContent() string {
 	// Determine target file
 	if p.activePane == PanePreview && p.previewFile != "" {
 		path = p.previewFile
-		// Check if it's a directory (previewFile is usually a file, but let's be safe)
-		if info, err := os.Stat(filepath.Join(p.ctx.WorkDir, path)); err == nil {
-			isDir = info.IsDir()
-		}
 	} else {
 		node := p.tree.GetNode(p.treeCursor)
 		if node != nil {
@@ -38,6 +34,11 @@ func (p *Plugin) renderInfoModalContent() string {
 	info, err := os.Stat(fullPath)
 	if err != nil {
 		return styles.ModalBox.Render(styles.StatusDeleted.Render("Error reading file: " + err.Error()))
+	}
+
+	// Get isDir from stat if not already set (from tree node)
+	if p.activePane == PanePreview {
+		isDir = info.IsDir()
 	}
 
 	// Format fields
@@ -72,23 +73,15 @@ func (p *Plugin) renderInfoModalContent() string {
 	labelStyle := styles.Muted.Copy().Width(12).Align(lipgloss.Right).MarginRight(2)
 	valueStyle := lipgloss.NewStyle().Foreground(styles.TextPrimary)
 
-		fields := []struct{ label, value string }{
-
-			{"Kind:", kind},
-
-			{"Size:", size},
-
-			{"Where:", filepath.Dir(path)},
-
-			{"Modified:", modTime},
-
-			{"Permissions:", perms},
-
-			{"Git Status:", p.gitStatus},
-
-			{"Commit:", p.gitLastCommit},
-
-		}
+	fields := []struct{ label, value string }{
+		{"Kind:", kind},
+		{"Size:", size},
+		{"Where:", filepath.Dir(path)},
+		{"Modified:", modTime},
+		{"Permissions:", perms},
+		{"Git Status:", p.gitStatus},
+		{"Commit:", p.gitLastCommit},
+	}
 
 	for _, f := range fields {
 		line := lipgloss.JoinHorizontal(lipgloss.Top,
@@ -100,7 +93,7 @@ func (p *Plugin) renderInfoModalContent() string {
 
 	// Footer hint
 	sb.WriteString("\n")
-	sb.WriteString(lipgloss.NewStyle().Align(lipgloss.Center).Width(50).Foreground(styles.TextMuted).Render("Press 'esc' to close"))
+	sb.WriteString(lipgloss.NewStyle().Align(lipgloss.Center).Width(50).Foreground(styles.TextMuted).Render("Press 'esc', 'q', or 'i' to close"))
 
 	return styles.ModalBox.
 		Width(60).

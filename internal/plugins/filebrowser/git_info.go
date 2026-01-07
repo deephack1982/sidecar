@@ -1,8 +1,10 @@
 package filebrowser
 
 import (
+	"context"
 	"os/exec"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -14,27 +16,41 @@ func (p *Plugin) fetchGitInfo(path string) tea.Cmd {
 			return GitInfoMsg{}
 		}
 
+		// Use context with timeout to prevent hanging
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
 		// Check status
-		statusCmd := exec.Command("git", "status", "--porcelain", path)
+		statusCmd := exec.CommandContext(ctx, "git", "status", "--porcelain", path)
 		statusCmd.Dir = p.ctx.WorkDir
-		statusOut, _ := statusCmd.Output()
-		status := strings.TrimSpace(string(statusOut))
-		if status == "" {
-			status = "Clean"
+		statusOut, err := statusCmd.Output()
+		var status string
+		if err != nil {
+			status = "Error"
 		} else {
-			// Extract status code (e.g. "M ", "??")
-			if len(status) >= 2 {
-				status = status[:2]
+			status = strings.TrimSpace(string(statusOut))
+			if status == "" {
+				status = "Clean"
+			} else {
+				// Extract status code (e.g. "M ", "??")
+				if len(status) >= 2 {
+					status = status[:2]
+				}
 			}
 		}
 
 		// Check last commit
-		logCmd := exec.Command("git", "log", "-1", "--format=%h - %s (%cr)", path)
+		logCmd := exec.CommandContext(ctx, "git", "log", "-1", "--format=%h - %s (%cr)", path)
 		logCmd.Dir = p.ctx.WorkDir
-		logOut, _ := logCmd.Output()
-		lastCommit := strings.TrimSpace(string(logOut))
-		if lastCommit == "" {
-			lastCommit = "Not committed"
+		logOut, err := logCmd.Output()
+		var lastCommit string
+		if err != nil {
+			lastCommit = "Error"
+		} else {
+			lastCommit = strings.TrimSpace(string(logOut))
+			if lastCommit == "" {
+				lastCommit = "Not committed"
+			}
 		}
 
 		return GitInfoMsg{Status: status, LastCommit: lastCommit}
