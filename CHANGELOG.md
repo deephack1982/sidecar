@@ -2,6 +2,30 @@
 
 All notable changes to sidecar are documented here.
 
+## [v0.9.0] - 2026-01-07
+
+### Features
+- **File Info Modal**: View file info with git status via info modal
+- **Copy Paths**: Copy files/paths from right panel of files plugin
+- **Session Persistence**: Remember previously opened plugin/tab across restarts
+- **File Memory**: File browser remembers open file across projects
+- **Colorful Tabs**: Improved visual tab styling
+- **Adapter Icons**: Populate AdapterIcon in session creation
+
+### Improvements
+- Better missing-td screen
+- Improved git repo readability
+- Removed emojis from info modal
+
+### Refactoring
+- Split filebrowser plugin.go into handlers.go and operations.go
+
+### Bug Fixes
+- Various fixes from code review
+
+### Dependencies
+- Updated embedded td to v0.5.0 (from v0.4.23)
+
 ## [v0.8.4] - 2026-01-06
 
 ### Dependencies
