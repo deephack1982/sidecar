@@ -167,6 +167,8 @@ func DefaultBindings() []Binding {
 		{Key: "m", Command: "toggle-markdown", Context: "file-browser-preview"},
 		{Key: "esc", Command: "back", Context: "file-browser-preview"},
 		{Key: "h", Command: "back", Context: "file-browser-preview"},
+		{Key: "y", Command: "yank-contents", Context: "file-browser-preview"},
+		{Key: "Y", Command: "yank-path", Context: "file-browser-preview"},
 
 		// File browser tree search context
 		{Key: "esc", Command: "cancel", Context: "file-browser-search"},

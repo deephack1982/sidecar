@@ -1281,9 +1281,19 @@ func (p *Plugin) handlePreviewKey(key string) (plugin.Plugin, tea.Cmd) {
 		}
 
 	case "y":
-		// Copy selected text to clipboard
+		// Copy selected text to clipboard, or entire file contents if no selection
 		if p.hasTextSelection() {
 			return p, p.copySelectedTextToClipboard()
+		}
+		return p, p.copyFileContentsToClipboard()
+
+	case "Y":
+		// Copy file path to clipboard
+		if p.previewFile != "" {
+			if err := clipboard.WriteAll(p.previewFile); err != nil {
+				return p, msg.ShowToast("Failed to copy path", 2*time.Second)
+			}
+			return p, msg.ShowToast("Copied: "+p.previewFile, 2*time.Second)
 		}
 
 	case "m":
@@ -2198,6 +2208,8 @@ func (p *Plugin) Commands() []plugin.Command {
 		{ID: "toggle-markdown", Name: "Render", Description: "Toggle markdown rendering", Category: plugin.CategoryActions, Context: "file-browser-preview", Priority: 4},
 		{ID: "back", Name: "Back", Description: "Return to file tree", Category: plugin.CategoryNavigation, Context: "file-browser-preview", Priority: 5},
 		{ID: "reveal", Name: "Reveal", Description: "Reveal in file manager", Category: plugin.CategoryActions, Context: "file-browser-preview", Priority: 6},
+		{ID: "yank-contents", Name: "Yank", Description: "Copy file contents", Category: plugin.CategoryActions, Context: "file-browser-preview", Priority: 7},
+		{ID: "yank-path", Name: "Path", Description: "Copy file path", Category: plugin.CategoryActions, Context: "file-browser-preview", Priority: 8},
 		// Tree search commands
 		{ID: "confirm", Name: "Go", Description: "Jump to match", Category: plugin.CategoryNavigation, Context: "file-browser-search", Priority: 1},
 		{ID: "cancel", Name: "Cancel", Description: "Cancel search", Category: plugin.CategoryActions, Context: "file-browser-search", Priority: 1},
@@ -2298,6 +2310,20 @@ func (p *Plugin) copySelectedTextToClipboard() tea.Cmd {
 
 		lineCount := end - start + 1
 		return msg.ShowToast(fmt.Sprintf("Copied %d line(s)", lineCount), 2*time.Second)
+	}
+}
+
+// copyFileContentsToClipboard copies the entire file contents to the system clipboard.
+func (p *Plugin) copyFileContentsToClipboard() tea.Cmd {
+	return func() tea.Msg {
+		if len(p.previewLines) == 0 {
+			return msg.ToastMsg{Message: "No content to copy", Duration: 2 * time.Second}
+		}
+		text := strings.Join(p.previewLines, "\n")
+		if err := clipboard.WriteAll(text); err != nil {
+			return msg.ToastMsg{Message: "Copy failed: " + err.Error(), Duration: 2 * time.Second, IsError: true}
+		}
+		return msg.ToastMsg{Message: fmt.Sprintf("Copied %d lines", len(p.previewLines)), Duration: 2 * time.Second}
 	}
 }
 
