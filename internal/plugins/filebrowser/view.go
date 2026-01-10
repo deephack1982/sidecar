@@ -942,24 +942,9 @@ func (p *Plugin) renderRenameModal() string {
 		lineCount += 2 // blank + error
 	}
 
-	// Interactive buttons (focus takes precedence over hover)
-	confirmStyle := styles.Button
-	cancelStyle := styles.Button
-	if p.fileOpButtonFocus == 1 {
-		confirmStyle = styles.ButtonFocused
-	} else if p.fileOpButtonHover == 1 {
-		confirmStyle = styles.ButtonHover
-	}
-	if p.fileOpButtonFocus == 2 {
-		cancelStyle = styles.ButtonFocused
-	} else if p.fileOpButtonHover == 2 {
-		cancelStyle = styles.ButtonHover
-	}
-
+	// Interactive buttons
 	sb.WriteString("\n\n")
-	sb.WriteString(confirmStyle.Render(" Confirm "))
-	sb.WriteString("  ")
-	sb.WriteString(cancelStyle.Render(" Cancel "))
+	sb.WriteString(ui.RenderButtonPair(" Confirm ", " Cancel ", p.fileOpButtonFocus, p.fileOpButtonHover))
 	lineCount += 2 // blank + buttons
 
 	// Register button hit regions
@@ -1000,24 +985,9 @@ func (p *Plugin) renderDeleteModal() string {
 	sb.WriteString(icon + " ")
 	sb.WriteString(name)
 
-	// Interactive buttons (focus takes precedence over hover)
-	confirmStyle := styles.Button
-	cancelStyle := styles.Button
-	if p.fileOpButtonFocus == 1 {
-		confirmStyle = styles.ButtonFocused
-	} else if p.fileOpButtonHover == 1 {
-		confirmStyle = styles.ButtonHover
-	}
-	if p.fileOpButtonFocus == 2 {
-		cancelStyle = styles.ButtonFocused
-	} else if p.fileOpButtonHover == 2 {
-		cancelStyle = styles.ButtonHover
-	}
-
+	// Interactive buttons
 	sb.WriteString("\n\n")
-	sb.WriteString(confirmStyle.Render(" Delete "))
-	sb.WriteString("  ")
-	sb.WriteString(cancelStyle.Render(" Cancel "))
+	sb.WriteString(ui.RenderButtonPair(" Delete ", " Cancel ", p.fileOpButtonFocus, p.fileOpButtonHover))
 
 	// Line count: title + blank + warning(2 lines) + blank + item + blank + buttons = 8
 	lineCount := 8
@@ -1083,24 +1053,9 @@ func (p *Plugin) renderMoveModal() string {
 		lineCount += 2 // blank + error
 	}
 
-	// Interactive buttons (focus takes precedence over hover)
-	confirmStyle := styles.Button
-	cancelStyle := styles.Button
-	if p.fileOpButtonFocus == 1 {
-		confirmStyle = styles.ButtonFocused
-	} else if p.fileOpButtonHover == 1 {
-		confirmStyle = styles.ButtonHover
-	}
-	if p.fileOpButtonFocus == 2 {
-		cancelStyle = styles.ButtonFocused
-	} else if p.fileOpButtonHover == 2 {
-		cancelStyle = styles.ButtonHover
-	}
-
+	// Interactive buttons
 	sb.WriteString("\n\n")
-	sb.WriteString(confirmStyle.Render(" Confirm "))
-	sb.WriteString("  ")
-	sb.WriteString(cancelStyle.Render(" Cancel "))
+	sb.WriteString(ui.RenderButtonPair(" Confirm ", " Cancel ", p.fileOpButtonFocus, p.fileOpButtonHover))
 	lineCount += 2 // blank + buttons
 
 	// Register button hit regions
@@ -1149,24 +1104,9 @@ func (p *Plugin) renderMkdirModal() string {
 		lineCount += 2 // blank + error
 	}
 
-	// Interactive buttons (focus takes precedence over hover)
-	confirmStyle := styles.Button
-	cancelStyle := styles.Button
-	if p.fileOpButtonFocus == 1 {
-		confirmStyle = styles.ButtonFocused
-	} else if p.fileOpButtonHover == 1 {
-		confirmStyle = styles.ButtonHover
-	}
-	if p.fileOpButtonFocus == 2 {
-		cancelStyle = styles.ButtonFocused
-	} else if p.fileOpButtonHover == 2 {
-		cancelStyle = styles.ButtonHover
-	}
-
+	// Interactive buttons
 	sb.WriteString("\n\n")
-	sb.WriteString(confirmStyle.Render(" Create "))
-	sb.WriteString("  ")
-	sb.WriteString(cancelStyle.Render(" Cancel "))
+	sb.WriteString(ui.RenderButtonPair(" Create ", " Cancel ", p.fileOpButtonFocus, p.fileOpButtonHover))
 	lineCount += 2 // blank + buttons
 
 	// Register button hit regions
@@ -1215,24 +1155,9 @@ func (p *Plugin) renderCreateFileModal() string {
 		lineCount += 2 // blank + error
 	}
 
-	// Interactive buttons (focus takes precedence over hover)
-	confirmStyle := styles.Button
-	cancelStyle := styles.Button
-	if p.fileOpButtonFocus == 1 {
-		confirmStyle = styles.ButtonFocused
-	} else if p.fileOpButtonHover == 1 {
-		confirmStyle = styles.ButtonHover
-	}
-	if p.fileOpButtonFocus == 2 {
-		cancelStyle = styles.ButtonFocused
-	} else if p.fileOpButtonHover == 2 {
-		cancelStyle = styles.ButtonHover
-	}
-
+	// Interactive buttons
 	sb.WriteString("\n\n")
-	sb.WriteString(confirmStyle.Render(" Create "))
-	sb.WriteString("  ")
-	sb.WriteString(cancelStyle.Render(" Cancel "))
+	sb.WriteString(ui.RenderButtonPair(" Create ", " Cancel ", p.fileOpButtonFocus, p.fileOpButtonHover))
 	lineCount += 2 // blank + buttons
 
 	// Register button hit regions
@@ -1264,24 +1189,9 @@ func (p *Plugin) renderCreateDirConfirmModal() string {
 	sb.WriteString("\n\n")
 	sb.WriteString("Create it?")
 
-	// Interactive buttons (focus takes precedence over hover)
-	confirmStyle := styles.Button
-	cancelStyle := styles.Button
-	if p.fileOpButtonFocus == 1 {
-		confirmStyle = styles.ButtonFocused
-	} else if p.fileOpButtonHover == 1 {
-		confirmStyle = styles.ButtonHover
-	}
-	if p.fileOpButtonFocus == 2 {
-		cancelStyle = styles.ButtonFocused
-	} else if p.fileOpButtonHover == 2 {
-		cancelStyle = styles.ButtonHover
-	}
-
+	// Interactive buttons
 	sb.WriteString("\n\n")
-	sb.WriteString(confirmStyle.Render(" Yes "))
-	sb.WriteString("  ")
-	sb.WriteString(cancelStyle.Render(" No "))
+	sb.WriteString(ui.RenderButtonPair(" Yes ", " No ", p.fileOpButtonFocus, p.fileOpButtonHover))
 
 	// Line count: title + blank + message(2 lines) + blank + question + blank + buttons = 8
 	lineCount := 8

@@ -8,13 +8,15 @@ import (
 
 // Hit region IDs
 const (
-	regionSidebar     = "sidebar"
-	regionDiffPane    = "diff-pane"
-	regionPaneDivider = "pane-divider"
-	regionFile        = "file"
-	regionCommit      = "commit"
-	regionCommitFile  = "commit-file" // Files in commit preview pane
-	regionDiffModal   = "diff-modal"  // Full-screen diff view
+	regionSidebar      = "sidebar"
+	regionDiffPane     = "diff-pane"
+	regionPaneDivider  = "pane-divider"
+	regionFile         = "file"
+	regionCommit       = "commit"
+	regionCommitFile   = "commit-file"   // Files in commit preview pane
+	regionDiffModal    = "diff-modal"    // Full-screen diff view
+	regionBranchItem   = "branch-item"   // Branch picker list item
+	regionPushMenuItem = "push-menu-item" // Push menu item
 )
 
 // handleMouse processes mouse events in the status view.
@@ -338,6 +340,46 @@ func (p *Plugin) handleMouseDrag(action mouse.MouseAction) (*Plugin, tea.Cmd) {
 func (p *Plugin) handleMouseDragEnd() (*Plugin, tea.Cmd) {
 	// Save the current sidebar width to state
 	_ = state.SetGitStatusSidebarWidth(p.sidebarWidth)
+	return p, nil
+}
+
+// handleBranchPickerMouse processes mouse events in the branch picker modal.
+func (p *Plugin) handleBranchPickerMouse(msg tea.MouseMsg) (*Plugin, tea.Cmd) {
+	action := p.mouseHandler.HandleMouse(msg)
+
+	switch action.Type {
+	case mouse.ActionClick:
+		if action.Region != nil && action.Region.ID == regionBranchItem {
+			if idx, ok := action.Region.Data.(int); ok && idx < len(p.branches) {
+				p.branchCursor = idx
+				branch := p.branches[idx]
+				if !branch.IsCurrent {
+					return p, p.doSwitchBranch(branch.Name)
+				}
+			}
+		}
+
+	case mouse.ActionHover:
+		if action.Region != nil && action.Region.ID == regionBranchItem {
+			if idx, ok := action.Region.Data.(int); ok {
+				p.branchPickerHover = idx
+			}
+		} else {
+			p.branchPickerHover = -1
+		}
+
+	case mouse.ActionScrollUp, mouse.ActionScrollDown:
+		// Scroll branch list
+		newCursor := p.branchCursor + action.Delta
+		if newCursor < 0 {
+			newCursor = 0
+		}
+		if newCursor >= len(p.branches) {
+			newCursor = len(p.branches) - 1
+		}
+		p.branchCursor = newCursor
+	}
+
 	return p, nil
 }
 

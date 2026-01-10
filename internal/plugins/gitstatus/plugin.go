@@ -99,7 +99,9 @@ type Plugin struct {
 	pushError          string
 	pushSuccess        bool      // Show success indicator after push
 	pushSuccessTime    time.Time // When to auto-clear success
-	pushMenuReturnMode ViewMode  // Mode to return to when push menu closes
+	pushMenuReturnMode ViewMode // Mode to return to when push menu closes
+	pushMenuFocus      int      // 0=push, 1=force, 2=upstream
+	pushMenuHover      int      // -1=none, 0=push, 1=force, 2=upstream
 
 	// View dimensions
 	width  int
@@ -119,20 +121,25 @@ type Plugin struct {
 	mouseHandler *mouse.Handler
 
 	// Discard confirm state
-	discardFile       *FileEntry // File being confirmed for discard
-	discardReturnMode ViewMode   // Mode to return to when modal closes
+	discardFile            *FileEntry // File being confirmed for discard
+	discardReturnMode      ViewMode   // Mode to return to when modal closes
+	discardButtonFocus     int        // 0=none, 1=confirm, 2=cancel
+	discardButtonHover     int        // 0=none, 1=confirm, 2=cancel
 
 	// Stash pop confirm state
-	stashPopItem *Stash // Stash being confirmed for pop
+	stashPopItem        *Stash // Stash being confirmed for pop
+	stashPopButtonFocus int    // 0=none, 1=confirm, 2=cancel
+	stashPopButtonHover int    // 0=none, 1=confirm, 2=cancel
 
 	// Syntax highlighting
 	syntaxHighlighter     *SyntaxHighlighter // Cached highlighter for current file
 	syntaxHighlighterFile string             // File the highlighter was created for
 
 	// Branch picker state
-	branches         []*Branch // List of branches
-	branchCursor     int       // Current cursor position
-	branchReturnMode ViewMode  // Mode to return to when modal closes
+	branches          []*Branch // List of branches
+	branchCursor      int       // Current cursor position
+	branchReturnMode  ViewMode  // Mode to return to when modal closes
+	branchPickerHover int       // -1=none, 0+=branch index for hover state
 
 	// Fetch/Pull state
 	fetchInProgress bool
@@ -270,6 +277,8 @@ func (p *Plugin) Update(msg tea.Msg) (plugin.Plugin, tea.Cmd) {
 			return p.handleMouse(msg)
 		case ViewModeDiff:
 			return p.handleDiffMouse(msg)
+		case ViewModeBranchPicker:
+			return p.handleBranchPickerMouse(msg)
 		}
 
 	case app.RefreshMsg:
@@ -2075,30 +2084,48 @@ func (p *Plugin) tryCommit() tea.Cmd {
 
 // updatePushMenu handles key events in the push menu.
 func (p *Plugin) updatePushMenu(msg tea.KeyMsg) (plugin.Plugin, tea.Cmd) {
+	const itemCount = 3 // push, force, upstream
+
 	switch msg.String() {
+	case "tab", "j", "down":
+		p.pushMenuFocus = (p.pushMenuFocus + 1) % itemCount
+		return p, nil
+	case "shift+tab", "k", "up":
+		p.pushMenuFocus = (p.pushMenuFocus - 1 + itemCount) % itemCount
+		return p, nil
+	case "enter":
+		return p.executePushMenuAction(p.pushMenuFocus)
 	case "esc", "q":
 		p.viewMode = p.pushMenuReturnMode
+		p.pushMenuFocus = 0
 		return p, nil
 	case "p":
-		// Regular push
-		p.viewMode = p.pushMenuReturnMode
-		p.pushInProgress = true
-		p.pushError = ""
-		p.pushSuccess = false
-		return p, p.doPush(false)
+		// Regular push (shortcut)
+		return p.executePushMenuAction(0)
 	case "f":
-		// Force push
-		p.viewMode = p.pushMenuReturnMode
-		p.pushInProgress = true
-		p.pushError = ""
-		p.pushSuccess = false
-		return p, p.doPushForce()
+		// Force push (shortcut)
+		return p.executePushMenuAction(1)
 	case "u":
-		// Push and set upstream
-		p.viewMode = p.pushMenuReturnMode
-		p.pushInProgress = true
-		p.pushError = ""
-		p.pushSuccess = false
+		// Push and set upstream (shortcut)
+		return p.executePushMenuAction(2)
+	}
+	return p, nil
+}
+
+// executePushMenuAction executes the push menu action at the given index.
+func (p *Plugin) executePushMenuAction(idx int) (plugin.Plugin, tea.Cmd) {
+	p.viewMode = p.pushMenuReturnMode
+	p.pushInProgress = true
+	p.pushError = ""
+	p.pushSuccess = false
+	p.pushMenuFocus = 0
+
+	switch idx {
+	case 0:
+		return p, p.doPush(false)
+	case 1:
+		return p, p.doPushForce()
+	case 2:
 		return p, p.doPushSetUpstream()
 	}
 	return p, nil
@@ -2241,44 +2268,90 @@ type StashPopConfirmMsg struct {
 }
 
 // updateConfirmStashPop handles key events in the confirm stash pop modal.
-func (p *Plugin) updateConfirmStashPop(msg tea.KeyMsg) (plugin.Plugin, tea.Cmd) {
+// handleConfirmKey handles common key input for confirm dialogs with button pairs.
+// focusPtr points to the button focus state (1=confirm, 2=cancel).
+// onConfirm is called when the user confirms (enter on confirm, y/Y).
+// onCancel is called when the user cancels (enter on cancel, esc/n/N/q).
+func (p *Plugin) handleConfirmKey(msg tea.KeyMsg, focusPtr *int, onConfirm, onCancel func()) (bool, tea.Cmd) {
 	switch msg.String() {
+	case "tab":
+		if *focusPtr == 1 {
+			*focusPtr = 2
+		} else {
+			*focusPtr = 1
+		}
+		return true, nil
+	case "shift+tab":
+		if *focusPtr == 2 {
+			*focusPtr = 1
+		} else {
+			*focusPtr = 2
+		}
+		return true, nil
+	case "enter":
+		if *focusPtr == 2 {
+			onCancel()
+			return true, nil
+		}
+		onConfirm()
+		return true, nil
+	case "y", "Y":
+		onConfirm()
+		return true, nil
 	case "esc", "n", "N", "q":
-		// Cancel stash pop
-		p.viewMode = ViewModeStatus
-		p.stashPopItem = nil
-		return p, nil
-	case "y", "Y", "enter":
-		// Confirm stash pop
-		if p.stashPopItem != nil {
+		onCancel()
+		return true, nil
+	}
+	return false, nil
+}
+
+func (p *Plugin) updateConfirmStashPop(msg tea.KeyMsg) (plugin.Plugin, tea.Cmd) {
+	var cmd tea.Cmd
+	handled, _ := p.handleConfirmKey(msg, &p.stashPopButtonFocus,
+		func() {
+			// Confirm
+			if p.stashPopItem != nil {
+				cmd = p.doStashPop()
+			}
 			p.viewMode = ViewModeStatus
 			p.stashPopItem = nil
-			return p, p.doStashPop()
-		}
-		p.viewMode = ViewModeStatus
-		return p, nil
+			p.stashPopButtonFocus = 1
+		},
+		func() {
+			// Cancel
+			p.viewMode = ViewModeStatus
+			p.stashPopItem = nil
+			p.stashPopButtonFocus = 1
+		},
+	)
+	if handled {
+		return p, cmd
 	}
 	return p, nil
 }
 
 // updateConfirmDiscard handles key events in the confirm discard modal.
 func (p *Plugin) updateConfirmDiscard(msg tea.KeyMsg) (plugin.Plugin, tea.Cmd) {
-	switch msg.String() {
-	case "esc", "n", "N", "q":
-		// Cancel discard
-		p.viewMode = p.discardReturnMode
-		p.discardFile = nil
-		return p, nil
-	case "y", "Y", "enter":
-		// Confirm discard
-		if p.discardFile != nil {
-			entry := p.discardFile
+	var cmd tea.Cmd
+	handled, _ := p.handleConfirmKey(msg, &p.discardButtonFocus,
+		func() {
+			// Confirm
+			if p.discardFile != nil {
+				cmd = p.doDiscard(p.discardFile)
+			}
 			p.viewMode = p.discardReturnMode
 			p.discardFile = nil
-			return p, p.doDiscard(entry)
-		}
-		p.viewMode = p.discardReturnMode
-		return p, nil
+			p.discardButtonFocus = 1
+		},
+		func() {
+			// Cancel
+			p.viewMode = p.discardReturnMode
+			p.discardFile = nil
+			p.discardButtonFocus = 1
+		},
+	)
+	if handled {
+		return p, cmd
 	}
 	return p, nil
 }

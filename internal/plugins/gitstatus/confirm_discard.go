@@ -47,10 +47,8 @@ func (p *Plugin) renderConfirmDiscard() string {
 	}
 	sb.WriteString("\n\n")
 
-	// Options
-	yKey := styles.KeyHint.Render(" y ")
-	nKey := styles.KeyHint.Render(" n ")
-	sb.WriteString(fmt.Sprintf("  %s Confirm    %s Cancel", yKey, nKey))
+	// Interactive buttons
+	sb.WriteString(ui.RenderButtonPair(" Discard ", " Cancel ", p.discardButtonFocus, p.discardButtonHover))
 
 	// Create modal box
 	modalWidth := 50

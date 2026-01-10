@@ -50,10 +50,8 @@ func (p *Plugin) renderConfirmStashPop() string {
 	sb.WriteString(styles.Muted.Render("  The stash will be removed if successful."))
 	sb.WriteString("\n\n")
 
-	// Options
-	yKey := styles.KeyHint.Render(" y ")
-	nKey := styles.KeyHint.Render(" n ")
-	sb.WriteString(fmt.Sprintf("  %s Confirm    %s Cancel", yKey, nKey))
+	// Interactive buttons
+	sb.WriteString(ui.RenderButtonPair(" Pop ", " Cancel ", p.stashPopButtonFocus, p.stashPopButtonHover))
 
 	// Create modal box
 	modalWidth := 55

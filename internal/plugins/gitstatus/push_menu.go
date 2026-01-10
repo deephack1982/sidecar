@@ -1,7 +1,6 @@
 package gitstatus
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -17,36 +16,41 @@ func (p *Plugin) renderPushMenu() string {
 	// Build menu content
 	var sb strings.Builder
 
-	// Menu options
+	// Title
+	sb.WriteString(styles.Title.Render(" Push "))
+	sb.WriteString("\n\n")
+
+	// Menu options with focus/hover support
 	options := []struct{ key, label string }{
-		{"p", "Push to origin"},
-		{"f", "Force push (--force-with-lease)"},
-		{"u", "Push & set upstream (-u)"},
+		{"p", " Push to origin "},
+		{"f", " Force push (--force-with-lease) "},
+		{"u", " Push & set upstream (-u) "},
 	}
 
 	for i, opt := range options {
-		key := styles.KeyHint.Render(" " + opt.key + " ")
-		sb.WriteString(fmt.Sprintf("  %s  %s", key, opt.label))
+		// Determine style based on focus/hover
+		style := ui.ResolveButtonStyle(p.pushMenuFocus, p.pushMenuHover, i)
+		keyHint := styles.KeyHint.Render(" " + opt.key + " ")
+		sb.WriteString(keyHint)
+		sb.WriteString(" ")
+		sb.WriteString(style.Render(opt.label))
 		if i < len(options)-1 {
-			sb.WriteString("\n\n") // Spacing between options
-		} else {
-			sb.WriteString("\n")
+			sb.WriteString("\n\n")
 		}
 	}
 
-	sb.WriteString("\n")
-	sb.WriteString(styles.Muted.Render("  Esc to cancel"))
+	sb.WriteString("\n\n")
+	sb.WriteString(styles.Muted.Render("Tab/↑↓ to navigate, Enter to select, Esc to cancel"))
 
-	// Create menu box - wide enough for longest option
-	menuWidth := 44
-	title := styles.Title.Render(" Push ")
+	// Create menu box
+	menuWidth := ui.ModalWidthMedium
 
 	menuContent := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(styles.Primary).
 		Padding(1, 2).
 		Width(menuWidth).
-		Render(title + "\n\n" + sb.String())
+		Render(sb.String())
 
 	// Overlay menu on dimmed background
 	return ui.OverlayModal(background, menuContent, p.width, p.height)

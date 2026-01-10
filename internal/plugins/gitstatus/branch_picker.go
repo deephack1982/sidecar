@@ -85,12 +85,30 @@ func (p *Plugin) renderBranchPicker() string {
 	// Render the background (status view dimmed)
 	background := p.renderThreePaneView()
 
+	// Clear previous hit regions for branch items
+	p.mouseHandler.HitMap.Clear()
+
 	var sb strings.Builder
 
 	// Title
 	title := styles.Title.Render(" Branches ")
 	sb.WriteString(title)
 	sb.WriteString("\n\n")
+
+	// Calculate modal width first (needed for hit regions)
+	modalWidth := 50
+	for _, b := range p.branches {
+		lineLen := len(b.Name) + 10
+		if lineLen > modalWidth {
+			modalWidth = lineLen
+		}
+	}
+	if modalWidth > p.width-10 {
+		modalWidth = p.width - 10
+	}
+
+	// Track visible branches for hit regions
+	var visibleStart, visibleEnd int
 
 	if len(p.branches) == 0 {
 		sb.WriteString(styles.Muted.Render("  Loading branches..."))
@@ -112,12 +130,15 @@ func (p *Plugin) renderBranchPicker() string {
 		if end > len(p.branches) {
 			end = len(p.branches)
 		}
+		visibleStart = start
+		visibleEnd = end
 
 		for i := start; i < end; i++ {
 			branch := p.branches[i]
 			selected := i == p.branchCursor
+			hovered := i == p.branchPickerHover
 
-			line := p.renderBranchLine(branch, selected)
+			line := p.renderBranchLine(branch, selected, hovered)
 			sb.WriteString(line)
 			if i < end-1 {
 				sb.WriteString("\n")
@@ -132,19 +153,7 @@ func (p *Plugin) renderBranchPicker() string {
 	}
 
 	sb.WriteString("\n\n")
-	sb.WriteString(styles.Muted.Render("  Enter to switch, Esc to cancel"))
-
-	// Calculate modal width
-	modalWidth := 50
-	for _, b := range p.branches {
-		lineLen := len(b.Name) + 10
-		if lineLen > modalWidth {
-			modalWidth = lineLen
-		}
-	}
-	if modalWidth > p.width-10 {
-		modalWidth = p.width - 10
-	}
+	sb.WriteString(styles.Muted.Render("  Enter to switch, j/k to navigate, Esc to cancel"))
 
 	modalContent := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
@@ -153,11 +162,33 @@ func (p *Plugin) renderBranchPicker() string {
 		Width(modalWidth).
 		Render(sb.String())
 
+	// Register hit regions for visible branches
+	// Modal adds: border(1) + padding(1) on each side vertically = 4 total height added
+	// Title + blank line = 2 lines before branches
+	// Modal position is centered
+	actualModalWidth := modalWidth + 6 // border(1) + padding(2) on each side
+	modalHeight := 4 + 2 + (visibleEnd - visibleStart) + 4 // approx: borders + title + branches + footer
+	startX := (p.width - actualModalWidth) / 2
+	startY := (p.height - modalHeight) / 2
+	if startX < 0 {
+		startX = 0
+	}
+	if startY < 0 {
+		startY = 0
+	}
+
+	// Branch items start at: startY + border(1) + padding(1) + title(1) + blank(1) = startY + 4
+	branchStartY := startY + 4
+	for i := visibleStart; i < visibleEnd; i++ {
+		lineY := branchStartY + (i - visibleStart)
+		p.mouseHandler.HitMap.AddRect(regionBranchItem, startX, lineY, actualModalWidth, 1, i)
+	}
+
 	return ui.OverlayModal(background, modalContent, p.width, p.height)
 }
 
 // renderBranchLine renders a single branch line.
-func (p *Plugin) renderBranchLine(branch *Branch, selected bool) string {
+func (p *Plugin) renderBranchLine(branch *Branch, selected, hovered bool) string {
 	// Current branch indicator
 	indicator := "  "
 	if branch.IsCurrent {
@@ -169,6 +200,7 @@ func (p *Plugin) renderBranchLine(branch *Branch, selected bool) string {
 
 	// Tracking info
 	trackingInfo := branch.FormatTrackingInfo()
+	trackingInfoPlain := trackingInfo
 	if trackingInfo != "" {
 		trackingInfo = " " + styles.StatusModified.Render(trackingInfo)
 	}
@@ -179,17 +211,26 @@ func (p *Plugin) renderBranchLine(branch *Branch, selected bool) string {
 		upstream = styles.Muted.Render(" → " + branch.Upstream)
 	}
 
-	if selected {
-		// Build plain text and pad
-		plainLine := fmt.Sprintf("%s%s", indicator, name)
-		if branch.FormatTrackingInfo() != "" {
-			plainLine += " " + branch.FormatTrackingInfo()
+	// Build plain line for selected/hovered states (need consistent width)
+	buildPlainLine := func() string {
+		line := fmt.Sprintf("%s%s", indicator, name)
+		if trackingInfoPlain != "" {
+			line += " " + trackingInfoPlain
 		}
 		maxWidth := 45
-		if len(plainLine) < maxWidth {
-			plainLine += strings.Repeat(" ", maxWidth-len(plainLine))
+		if len(line) < maxWidth {
+			line += strings.Repeat(" ", maxWidth-len(line))
 		}
-		return styles.ListItemSelected.Render(plainLine)
+		return line
+	}
+
+	if selected {
+		return styles.ListItemSelected.Render(buildPlainLine())
+	}
+
+	if hovered {
+		// Use a hover style - slightly highlighted background
+		return styles.ListItemSelected.Render(buildPlainLine())
 	}
 
 	// Style based on current branch
