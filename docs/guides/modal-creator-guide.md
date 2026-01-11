@@ -354,3 +354,49 @@ The modal height estimate and hit region calculation must use the same line coun
 - App-level modals: `internal/app/view.go`
 - Plugin modal helper: `internal/ui/overlay.go` (`OverlayModal()`)
 - Modal styles: `internal/styles/styles.go` (`ModalBox`, `ModalTitle`, etc.)
+
+## Interactive Modal Buttons
+
+All modals with user actions should use interactive buttons instead of key hints:
+
+### Button Rendering Pattern
+```go
+confirmStyle := styles.Button
+cancelStyle := styles.Button
+if p.buttonFocus == 1 {
+    confirmStyle = styles.ButtonFocused
+}
+if p.buttonFocus == 2 {
+    cancelStyle = styles.ButtonFocused
+}
+
+sb.WriteString(confirmStyle.Render(" Confirm "))
+sb.WriteString("  ")
+sb.WriteString(cancelStyle.Render(" Cancel "))
+```
+
+### Keyboard Navigation
+- Tab: Cycle focus between input field and buttons
+- Enter: Execute focused button (or confirm from input)
+- Esc: Always cancels (global shortcut)
+
+### Mouse Support
+Register hit regions for buttons during render:
+```go
+p.mouseHandler.HitMap.AddRect(regionConfirm, x, y, width, 1, nil)
+```
+
+Handle clicks in Update():
+```go
+case regionConfirm:
+    return p.executeAction()
+```
+
+### Path Auto-Complete (for path inputs)
+For modals accepting directory paths (like move), show fuzzy-matched suggestions:
+- Build directory cache (filter for IsDir during walk)
+- Use FuzzyFilter() from fuzzy.go
+- Show up to 5 directory suggestions below input
+- Tab accepts top/selected suggestion
+- Up/Down navigates suggestions
+```

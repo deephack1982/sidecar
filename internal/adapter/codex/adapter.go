@@ -8,10 +8,26 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/marcus/sidecar/internal/adapter"
 )
+
+// scannerBufPool recycles buffers for bufio.Scanner to reduce allocations.
+var scannerBufPool = sync.Pool{
+	New: func() interface{} {
+		return make([]byte, 1024*1024)
+	},
+}
+
+func getScannerBuffer() []byte {
+	return scannerBufPool.Get().([]byte)
+}
+
+func putScannerBuffer(buf []byte) {
+	scannerBufPool.Put(buf)
+}
 
 const (
 	adapterID   = "codex"
@@ -165,7 +181,9 @@ func (a *Adapter) Messages(sessionID string) ([]adapter.Message, error) {
 	}
 
 	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 1024*1024), 10*1024*1024)
+	buf := getScannerBuffer()
+	defer putScannerBuffer(buf)
+	scanner.Buffer(buf, 10*1024*1024)
 
 	for scanner.Scan() {
 		var record RawRecord
@@ -374,7 +392,9 @@ func (a *Adapter) parseSessionMetadata(path string) (*SessionMetadata, error) {
 	var totalTokens int
 
 	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 1024*1024), 10*1024*1024)
+	buf := getScannerBuffer()
+	defer putScannerBuffer(buf)
+	scanner.Buffer(buf, 10*1024*1024)
 
 	for scanner.Scan() {
 		var record RawRecord
@@ -522,7 +542,9 @@ func (a *Adapter) totalUsageFromFile(path string) *TokenUsage {
 	defer file.Close()
 
 	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 1024*1024), 10*1024*1024)
+	buf := getScannerBuffer()
+	defer putScannerBuffer(buf)
+	scanner.Buffer(buf, 10*1024*1024)
 
 	var total *TokenUsage
 	for scanner.Scan() {

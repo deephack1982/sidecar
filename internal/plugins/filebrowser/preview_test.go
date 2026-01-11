@@ -68,10 +68,30 @@ func TestLoadPreview(t *testing.T) {
 func TestLoadPreview_Binary(t *testing.T) {
 	tmpDir := t.TempDir()
 
-	// Create binary file
-	binaryData := []byte{0x89, 0x50, 0x4E, 0x47, 0x00, 0x00} // PNG-like header with null
-	testFile := filepath.Join(tmpDir, "image.png")
+	// Create binary file (use .bin extension to avoid image detection)
+	binaryData := []byte{0x89, 0x50, 0x4E, 0x47, 0x00, 0x00} // Binary data with null byte
+	testFile := filepath.Join(tmpDir, "data.bin")
 	if err := os.WriteFile(testFile, binaryData, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := LoadPreview(tmpDir, "data.bin")
+	msg := cmd()
+
+	result := msg.(PreviewLoadedMsg)
+
+	if !result.Result.IsBinary {
+		t.Error("expected binary file")
+	}
+}
+
+func TestLoadPreview_Image(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create image file (PNG-like data)
+	imageData := []byte{0x89, 0x50, 0x4E, 0x47, 0x00, 0x00}
+	testFile := filepath.Join(tmpDir, "image.png")
+	if err := os.WriteFile(testFile, imageData, 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -80,8 +100,11 @@ func TestLoadPreview_Binary(t *testing.T) {
 
 	result := msg.(PreviewLoadedMsg)
 
-	if !result.Result.IsBinary {
-		t.Error("expected binary file")
+	if !result.Result.IsImage {
+		t.Error("expected image file")
+	}
+	if result.Result.IsBinary {
+		t.Error("image files should not be marked as binary")
 	}
 }
 

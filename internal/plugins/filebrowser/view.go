@@ -2,10 +2,12 @@ package filebrowser
 
 import (
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/marcus/sidecar/internal/image"
 	"github.com/marcus/sidecar/internal/styles"
 	"github.com/marcus/sidecar/internal/ui"
 )
@@ -95,29 +97,6 @@ func (p *Plugin) renderView() string {
 		return ui.OverlayModal(background, modal, p.width, p.height)
 	}
 
-	// File operation modals - render modal over dimmed background
-	if p.fileOpMode != FileOpNone {
-		background := p.renderNormalPanes()
-		var modal string
-		switch p.fileOpMode {
-		case FileOpRename:
-			modal = p.renderRenameModal()
-		case FileOpDelete:
-			modal = p.renderDeleteModal()
-		case FileOpMove:
-			if p.fileOpConfirmCreate {
-				modal = p.renderCreateDirConfirmModal()
-			} else {
-				modal = p.renderMoveModal()
-			}
-		case FileOpCreateDir:
-			modal = p.renderMkdirModal()
-		case FileOpCreateFile:
-			modal = p.renderCreateFileModal()
-		}
-		return ui.OverlayModal(background, modal, p.width, p.height)
-	}
-
 	return p.renderNormalPanes()
 }
 
@@ -135,12 +114,15 @@ func (p *Plugin) renderNormalPanes() string {
 		previewBorder = styles.PanelActive
 	}
 
-	// Account for input bar if active (content search only)
+	// Account for input bar if active (content search or file op)
 	// Note: tree search bar is rendered inside the tree pane, not here
-	// Note: file op uses modals now, not inline bar
 	inputBarHeight := 0
-	if p.contentSearchMode {
+	if p.contentSearchMode || p.fileOpMode != FileOpNone {
 		inputBarHeight = 1
+		// Add extra line for error message if present
+		if p.fileOpMode != FileOpNone && p.fileOpError != "" {
+			inputBarHeight = 2
+		}
 	}
 
 	// Calculate pane height for content (excluding borders)
@@ -187,7 +169,10 @@ func (p *Plugin) renderNormalPanes() string {
 		parts = append(parts, p.renderContentSearchBar())
 	}
 
-	// Note: file operations now use modals (see renderView), not inline bar
+	// Add file operation bar if in file operation mode
+	if p.fileOpMode != FileOpNone {
+		parts = append(parts, p.renderFileOpBar())
+	}
 
 	parts = append(parts, panes)
 
@@ -304,6 +289,50 @@ func (p *Plugin) renderTreeSearchBar() string {
 	searchLine := fmt.Sprintf("/%s%s%s", p.searchQuery, cursor, matchInfo)
 	// Use a subtle style that fits inside the pane
 	return styles.StatusInProgress.Render(searchLine)
+}
+
+// renderFileOpBar renders the file operation input bar (move/rename/create/delete).
+func (p *Plugin) renderFileOpBar() string {
+	// Handle delete confirmation mode
+	if p.fileOpConfirmDelete && p.fileOpTarget != nil {
+		itemType := "file"
+		if p.fileOpTarget.IsDir {
+			itemType = "directory"
+		}
+		confirmLine := fmt.Sprintf(" Delete %s '%s'? [y]es / [n]o", itemType, p.fileOpTarget.Name)
+		return styles.ModalTitle.Render(confirmLine)
+	}
+
+	// Handle confirmation mode for directory creation (during move)
+	if p.fileOpConfirmCreate {
+		confirmLine := fmt.Sprintf(" Create '%s'? [y]es / [n]o", p.fileOpConfirmPath)
+		return styles.ModalTitle.Render(confirmLine)
+	}
+
+	var prompt string
+	switch p.fileOpMode {
+	case FileOpRename:
+		prompt = "Rename: "
+	case FileOpMove:
+		prompt = "Move to: "
+	case FileOpCreateFile:
+		prompt = "New file: "
+	case FileOpCreateDir:
+		prompt = "New dir: "
+	default:
+		return ""
+	}
+
+	inputLine := fmt.Sprintf(" %s%s", prompt, p.fileOpTextInput.View())
+
+	if p.fileOpError != "" {
+		errorLine := styles.StatusDeleted.Render(" " + p.fileOpError)
+		return lipgloss.JoinVertical(lipgloss.Left,
+			styles.ModalTitle.Render(inputLine),
+			errorLine,
+		)
+	}
+	return styles.ModalTitle.Render(inputLine)
 }
 
 // renderTreePane renders the file tree in the left pane.
@@ -508,6 +537,12 @@ func (p *Plugin) renderPreviewPane(visibleHeight int) string {
 
 	if p.previewError != nil {
 		sb.WriteString(styles.StatusDeleted.Render(p.previewError.Error()))
+		return sb.String()
+	}
+
+	// Handle image preview
+	if p.isImage {
+		sb.WriteString(p.renderImagePreview())
 		return sb.String()
 	}
 
@@ -864,340 +899,48 @@ func (p *Plugin) highlightFuzzyMatch(text string, ranges []MatchRange) string {
 	return result.String()
 }
 
-// ============================================================================
-// File Operation Modals
-// ============================================================================
-
-// registerFileOpButtonHitRegions registers mouse hit regions for modal buttons.
-// contentLineCount is the number of lines in the modal content (before ModalBox wrapping).
-// modalContentWidth is the content width passed to ModalBox.Width().
-// confirmLabel and cancelLabel are the button text (e.g., " Confirm ", " Cancel ").
-func (p *Plugin) registerFileOpButtonHitRegions(contentLineCount, modalContentWidth int, confirmLabel, cancelLabel string) {
-	// ModalBox adds: border(1) + padding(1) vertically on each side
-	// Total modal height = contentLineCount + 4 (top border + top padding + bottom padding + bottom border)
-	modalHeight := contentLineCount + 4
-
-	// ModalBox adds: border(1) + padding(2) horizontally on each side = 6 total
-	actualModalWidth := modalContentWidth + 6
-
-	// Calculate modal position (same as ui.OverlayModal)
-	startX := (p.width - actualModalWidth) / 2
-	startY := (p.height - modalHeight) / 2
-	if startX < 0 {
-		startX = 0
+// renderImagePreview renders image preview or fallback message.
+func (p *Plugin) renderImagePreview() string {
+	// Calculate available dimensions (respect height constraint)
+	contentHeight := p.height - 2 // Account for borders
+	contentWidth := p.previewWidth - 2
+	if contentWidth < 10 {
+		contentWidth = 10
 	}
-	if startY < 0 {
-		startY = 0
+	if contentHeight < 5 {
+		contentHeight = 5
 	}
 
-	// Button Y position: startY + border(1) + padding(1) + last content line index + 1
-	// Buttons are on the last line of content (index = contentLineCount - 1)
-	// The +1 accounts for 0-based vs 1-based indexing in the rendered output
-	buttonY := startY + 2 + (contentLineCount - 1) + 1
+	// Get full path for rendering
+	fullPath := filepath.Join(p.tree.RootDir, p.previewFile)
 
-	// Button X positions: startX + border(1) + padding(2) = content start
-	contentX := startX + 3
-
-	// styles.Button adds Padding(0, 2) = 4 extra chars (2 left + 2 right)
-	// So rendered button width = len(label) + 4
-	confirmRenderedWidth := len(confirmLabel) + 4
-	p.mouseHandler.HitMap.AddRect(regionFileOpConfirm, contentX, buttonY, confirmRenderedWidth, 1, nil)
-
-	// Cancel button after confirm + gap(2 spaces between buttons)
-	cancelX := contentX + confirmRenderedWidth + 2
-	cancelRenderedWidth := len(cancelLabel) + 4
-	p.mouseHandler.HitMap.AddRect(regionFileOpCancel, cancelX, buttonY, cancelRenderedWidth, 1, nil)
-}
-
-// renderRenameModal renders the rename modal for file/directory renaming.
-func (p *Plugin) renderRenameModal() string {
-	modalWidth := 50
-
-	var sb strings.Builder
-
-	// Title
-	sb.WriteString(styles.ModalTitle.Render("Rename"))
-	sb.WriteString("\n\n")
-
-	// Current name
-	currentName := ""
-	if p.fileOpTarget != nil {
-		currentName = p.fileOpTarget.Name
-	}
-	sb.WriteString(styles.Muted.Render("Current: "))
-	sb.WriteString(currentName)
-	sb.WriteString("\n\n")
-
-	// Input field
-	sb.WriteString("New name: ")
-	sb.WriteString(p.fileOpTextInput.View())
-
-	// Track line count for hit region calculation
-	lineCount := 5 // title + blank + current + blank + input
-
-	// Error message if present
-	if p.fileOpError != "" {
-		sb.WriteString("\n\n")
-		sb.WriteString(styles.StatusDeleted.Render(p.fileOpError))
-		lineCount += 2 // blank + error
+	// Render image
+	result, err := p.imageRenderer.Render(fullPath, contentWidth, contentHeight)
+	if err != nil {
+		return styles.Muted.Render(fmt.Sprintf("Image error: %v", err))
 	}
 
-	// Interactive buttons
-	sb.WriteString("\n\n")
-	sb.WriteString(ui.RenderButtonPair(" Confirm ", " Cancel ", p.fileOpButtonFocus, p.fileOpButtonHover))
-	lineCount += 2 // blank + buttons
+	// Cache result for resize detection
+	p.imageResult = result
 
-	// Register button hit regions
-	p.registerFileOpButtonHitRegions(lineCount, modalWidth, " Confirm ", " Cancel ")
+	if result.IsFallback {
+		// Show informative fallback message
+		ext := filepath.Ext(p.previewFile)
+		msg := fmt.Sprintf("Image file (%s)", ext)
 
-	return styles.ModalBox.Width(modalWidth).Render(sb.String())
-}
-
-// renderDeleteModal renders the delete confirmation modal.
-func (p *Plugin) renderDeleteModal() string {
-	modalWidth := 50
-
-	var sb strings.Builder
-
-	// Title
-	sb.WriteString(styles.ModalTitle.Render("Delete"))
-	sb.WriteString("\n\n")
-
-	// Warning text
-	sb.WriteString("Are you sure you want to\n")
-	sb.WriteString("delete this ")
-
-	itemType := "file"
-	icon := "📄"
-	if p.fileOpTarget != nil && p.fileOpTarget.IsDir {
-		itemType = "directory"
-		icon = "📁"
-	}
-	sb.WriteString(itemType)
-	sb.WriteString("?")
-	sb.WriteString("\n\n")
-
-	// Item being deleted
-	name := ""
-	if p.fileOpTarget != nil {
-		name = p.fileOpTarget.Name
-	}
-	sb.WriteString(icon + " ")
-	sb.WriteString(name)
-
-	// Interactive buttons
-	sb.WriteString("\n\n")
-	sb.WriteString(ui.RenderButtonPair(" Delete ", " Cancel ", p.fileOpButtonFocus, p.fileOpButtonHover))
-
-	// Line count: title + blank + warning(2 lines) + blank + item + blank + buttons = 8
-	lineCount := 8
-
-	// Register button hit regions
-	p.registerFileOpButtonHitRegions(lineCount, modalWidth, " Delete ", " Cancel ")
-
-	// Use a red border for delete warning
-	return lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(styles.Error).
-		Padding(1, 2).
-		Width(modalWidth).
-		Render(sb.String())
-}
-
-// renderMoveModal renders the move modal for file/directory moving.
-func (p *Plugin) renderMoveModal() string {
-	modalWidth := 60 // Wider for paths
-
-	var sb strings.Builder
-
-	// Title
-	sb.WriteString(styles.ModalTitle.Render("Move"))
-	sb.WriteString("\n\n")
-
-	// Current name
-	currentName := ""
-	if p.fileOpTarget != nil {
-		currentName = p.fileOpTarget.Name
-	}
-	sb.WriteString(styles.Muted.Render("Moving: "))
-	sb.WriteString(currentName)
-	sb.WriteString("\n\n")
-
-	// Input field
-	sb.WriteString("To: ")
-	sb.WriteString(p.fileOpTextInput.View())
-
-	// Track line count: title + blank + moving + blank + input = 5
-	lineCount := 5
-
-	// Path suggestions dropdown
-	if p.fileOpShowSuggestions && len(p.fileOpSuggestions) > 0 {
-		sb.WriteString("\n")
-		for i, suggestion := range p.fileOpSuggestions {
-			if i == p.fileOpSuggestionIdx {
-				sb.WriteString(styles.ListItemSelected.Render("  → " + suggestion))
-			} else {
-				sb.WriteString(styles.Muted.Render("    " + suggestion))
-			}
-			if i < len(p.fileOpSuggestions)-1 {
-				sb.WriteString("\n")
-			}
+		if result.Content != "" {
+			// Custom fallback message (e.g., "too large")
+			msg = result.Content
 		}
-		lineCount += len(p.fileOpSuggestions)
+
+		hint := "Preview in: " + image.SupportedTerminals()
+
+		return lipgloss.JoinVertical(lipgloss.Center,
+			styles.Muted.Render(msg),
+			"",
+			styles.Muted.Render(hint),
+		)
 	}
 
-	// Error message if present
-	if p.fileOpError != "" {
-		sb.WriteString("\n\n")
-		sb.WriteString(styles.StatusDeleted.Render(p.fileOpError))
-		lineCount += 2 // blank + error
-	}
-
-	// Interactive buttons
-	sb.WriteString("\n\n")
-	sb.WriteString(ui.RenderButtonPair(" Confirm ", " Cancel ", p.fileOpButtonFocus, p.fileOpButtonHover))
-	lineCount += 2 // blank + buttons
-
-	// Register button hit regions
-	p.registerFileOpButtonHitRegions(lineCount, modalWidth, " Confirm ", " Cancel ")
-
-	return styles.ModalBox.Width(modalWidth).Render(sb.String())
-}
-
-// renderMkdirModal renders the create directory modal.
-func (p *Plugin) renderMkdirModal() string {
-	modalWidth := 50
-
-	var sb strings.Builder
-
-	// Title
-	sb.WriteString(styles.ModalTitle.Render("Create Directory"))
-	sb.WriteString("\n\n")
-
-	// Parent directory
-	parentPath := ""
-	if p.fileOpTarget != nil {
-		if p.fileOpTarget.IsDir {
-			parentPath = p.fileOpTarget.Path
-		} else if p.fileOpTarget.Parent != nil {
-			parentPath = p.fileOpTarget.Parent.Path
-		}
-	}
-	if parentPath == "" {
-		parentPath = "/"
-	}
-	sb.WriteString(styles.Muted.Render("Parent: "))
-	sb.WriteString(truncatePath(parentPath, modalWidth-12))
-	sb.WriteString("\n\n")
-
-	// Input field
-	sb.WriteString("Name: ")
-	sb.WriteString(p.fileOpTextInput.View())
-
-	// Track line count: title + blank + parent + blank + name = 5
-	lineCount := 5
-
-	// Error message if present
-	if p.fileOpError != "" {
-		sb.WriteString("\n\n")
-		sb.WriteString(styles.StatusDeleted.Render(p.fileOpError))
-		lineCount += 2 // blank + error
-	}
-
-	// Interactive buttons
-	sb.WriteString("\n\n")
-	sb.WriteString(ui.RenderButtonPair(" Create ", " Cancel ", p.fileOpButtonFocus, p.fileOpButtonHover))
-	lineCount += 2 // blank + buttons
-
-	// Register button hit regions
-	p.registerFileOpButtonHitRegions(lineCount, modalWidth, " Create ", " Cancel ")
-
-	return styles.ModalBox.Width(modalWidth).Render(sb.String())
-}
-
-// renderCreateFileModal renders the create file modal.
-func (p *Plugin) renderCreateFileModal() string {
-	modalWidth := 50
-
-	var sb strings.Builder
-
-	// Title
-	sb.WriteString(styles.ModalTitle.Render("Create File"))
-	sb.WriteString("\n\n")
-
-	// Parent directory
-	parentPath := ""
-	if p.fileOpTarget != nil {
-		if p.fileOpTarget.IsDir {
-			parentPath = p.fileOpTarget.Path
-		} else if p.fileOpTarget.Parent != nil {
-			parentPath = p.fileOpTarget.Parent.Path
-		}
-	}
-	if parentPath == "" {
-		parentPath = "/"
-	}
-	sb.WriteString(styles.Muted.Render("Parent: "))
-	sb.WriteString(truncatePath(parentPath, modalWidth-12))
-	sb.WriteString("\n\n")
-
-	// Input field
-	sb.WriteString("Name: ")
-	sb.WriteString(p.fileOpTextInput.View())
-
-	// Track line count: title + blank + parent + blank + name = 5
-	lineCount := 5
-
-	// Error message if present
-	if p.fileOpError != "" {
-		sb.WriteString("\n\n")
-		sb.WriteString(styles.StatusDeleted.Render(p.fileOpError))
-		lineCount += 2 // blank + error
-	}
-
-	// Interactive buttons
-	sb.WriteString("\n\n")
-	sb.WriteString(ui.RenderButtonPair(" Create ", " Cancel ", p.fileOpButtonFocus, p.fileOpButtonHover))
-	lineCount += 2 // blank + buttons
-
-	// Register button hit regions
-	p.registerFileOpButtonHitRegions(lineCount, modalWidth, " Create ", " Cancel ")
-
-	return styles.ModalBox.Width(modalWidth).Render(sb.String())
-}
-
-// renderCreateDirConfirmModal renders the directory creation confirmation modal (during move).
-func (p *Plugin) renderCreateDirConfirmModal() string {
-	// Adaptive width based on path length
-	modalWidth := len(p.fileOpConfirmPath) + 10
-	if modalWidth < 40 {
-		modalWidth = 40
-	}
-	if modalWidth > 70 {
-		modalWidth = 70
-	}
-
-	var sb strings.Builder
-
-	// Title
-	sb.WriteString(styles.ModalTitle.Render("Create Directory?"))
-	sb.WriteString("\n\n")
-
-	// Message
-	sb.WriteString("Directory does not exist:\n")
-	sb.WriteString(truncatePath(p.fileOpConfirmPath, modalWidth-4))
-	sb.WriteString("\n\n")
-	sb.WriteString("Create it?")
-
-	// Interactive buttons
-	sb.WriteString("\n\n")
-	sb.WriteString(ui.RenderButtonPair(" Yes ", " No ", p.fileOpButtonFocus, p.fileOpButtonHover))
-
-	// Line count: title + blank + message(2 lines) + blank + question + blank + buttons = 8
-	lineCount := 8
-
-	// Register button hit regions
-	p.registerFileOpButtonHitRegions(lineCount, modalWidth, " Yes ", " No ")
-
-	return styles.ModalBox.Width(modalWidth).Render(sb.String())
+	return result.Content
 }

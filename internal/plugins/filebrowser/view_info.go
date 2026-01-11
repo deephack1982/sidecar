@@ -70,7 +70,7 @@ func (p *Plugin) renderInfoModalContent() string {
 	sb.WriteString("\n\n")
 
 	// Key-Value pairs
-	labelStyle := styles.Muted.Copy().Width(12).Align(lipgloss.Right).MarginRight(2)
+	labelStyle := styles.Muted.Width(12).Align(lipgloss.Right).MarginRight(2)
 	valueStyle := lipgloss.NewStyle().Foreground(styles.TextPrimary)
 
 	fields := []struct{ label, value string }{
@@ -100,3 +100,4 @@ func (p *Plugin) renderInfoModalContent() string {
 		Padding(1, 2).
 		Render(sb.String())
 }
+

@@ -7,6 +7,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/marcus/sidecar/internal/image"
 	"github.com/marcus/sidecar/internal/markdown"
 	"github.com/marcus/sidecar/internal/mouse"
 	"github.com/marcus/sidecar/internal/plugin"
@@ -129,6 +130,11 @@ type Plugin struct {
 	markdownRenderMode bool               // true=rendered, false=raw
 	markdownRendered   []string           // Cached rendered lines
 
+	// Image preview state
+	imageRenderer *image.Renderer     // Terminal graphics renderer
+	isImage       bool                // True if current preview is an image
+	imageResult   *image.RenderResult // Cached render result for current image
+
 	// Dimensions
 	width, height int
 	treeWidth     int
@@ -204,7 +210,8 @@ type Plugin struct {
 // New creates a new File Browser plugin.
 func New() *Plugin {
 	return &Plugin{
-		mouseHandler: mouse.NewHandler(),
+		mouseHandler:  mouse.NewHandler(),
+		imageRenderer: image.New(), // Detect terminal graphics protocol once
 	}
 }
 
@@ -346,6 +353,8 @@ func (p *Plugin) Update(msg tea.Msg) (plugin.Plugin, tea.Cmd) {
 		if p.markdownRenderMode && p.isMarkdownFile() {
 			p.markdownRendered = nil
 		}
+		// Invalidate image cache when size changes (will re-render at new size)
+		p.imageResult = nil
 
 	case TreeBuiltMsg:
 		if msg.Err != nil {
@@ -404,6 +413,13 @@ func (p *Plugin) Update(msg tea.Msg) (plugin.Plugin, tea.Cmd) {
 			p.previewSize = msg.Result.TotalSize
 			p.previewModTime = msg.Result.ModTime
 			p.previewMode = msg.Result.Mode
+
+			// Handle image preview state
+			p.isImage = msg.Result.IsImage
+			p.imageResult = nil // Clear cached render (will re-render at current size)
+			if p.isImage {
+				p.isBinary = false // Don't show "Binary file" for images
+			}
 
 			// Clear markdown cache when loading new file
 			p.markdownRendered = nil

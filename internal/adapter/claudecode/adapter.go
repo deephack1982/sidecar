@@ -14,6 +14,22 @@ import (
 	"github.com/marcus/sidecar/internal/adapter"
 )
 
+// scannerBufPool recycles buffers for bufio.Scanner to reduce allocations.
+// We use 1MB initial buffer (default is 4KB) to reduce resizing, with 10MB max.
+var scannerBufPool = sync.Pool{
+	New: func() interface{} {
+		return make([]byte, 1024*1024)
+	},
+}
+
+func getScannerBuffer() []byte {
+	return scannerBufPool.Get().([]byte)
+}
+
+func putScannerBuffer(buf []byte) {
+	scannerBufPool.Put(buf)
+}
+
 const (
 	adapterID   = "claude-code"
 	adapterName = "Claude Code"
@@ -164,7 +180,9 @@ func (a *Adapter) Messages(sessionID string) ([]adapter.Message, error) {
 	toolUseRefs := make(map[string]toolUseRef)
 
 	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 1024*1024), 10*1024*1024)
+	buf := getScannerBuffer()
+	defer putScannerBuffer(buf)
+	scanner.Buffer(buf, 10*1024*1024)
 
 	for scanner.Scan() {
 		var raw RawMessage
@@ -374,7 +392,9 @@ func (a *Adapter) parseSessionMetadata(path string) (*SessionMetadata, error) {
 	}
 
 	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 1024*1024), 10*1024*1024)
+	buf := getScannerBuffer()
+	defer putScannerBuffer(buf)
+	scanner.Buffer(buf, 10*1024*1024)
 
 	modelCounts := make(map[string]int)
 	modelTokens := make(map[string]struct{ in, out, cache int })

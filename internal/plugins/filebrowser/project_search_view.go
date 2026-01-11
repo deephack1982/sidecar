@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/marcus/sidecar/internal/styles"
+	"github.com/marcus/sidecar/internal/ui"
 )
 
 // renderProjectSearchModalContent renders the project search modal box content.
@@ -96,7 +97,7 @@ func (p *Plugin) renderProjectSearchHeader(width int) string {
 	query := state.Query
 	if len(query) > available {
 		// Show end of query if too long
-		query = "..." + query[len(query)-available+3:]
+		query = ui.TruncateStart(query, available)
 	}
 
 	header := fmt.Sprintf("%s%s%s", prefix, query, cursor)
@@ -314,7 +315,7 @@ func (p *Plugin) renderSearchFileHeader(file SearchFileResult, fileIdx int, sele
 
 	path := file.Path
 	if len(path) > availableWidth {
-		path = "..." + path[len(path)-availableWidth+3:]
+		path = ui.TruncateStart(path, availableWidth)
 	}
 
 	// Build line

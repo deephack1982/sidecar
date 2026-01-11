@@ -555,18 +555,20 @@ func (p *Plugin) handleFileOpKey(msg tea.KeyMsg) (plugin.Plugin, tea.Cmd) {
 		return p, nil
 
 	case "tab":
-		// If move modal with suggestions showing, accept selection first
-		if p.fileOpMode == FileOpMove && p.fileOpShowSuggestions && len(p.fileOpSuggestions) > 0 {
-			// Accept selected suggestion or first one
+		// If suggestions are visible, use tab to complete
+		if p.fileOpMode == FileOpMove && p.fileOpShowSuggestions {
 			idx := p.fileOpSuggestionIdx
 			if idx < 0 {
-				idx = 0
+				idx = 0 // Auto-select first if none selected
 			}
-			p.fileOpTextInput.SetValue(p.fileOpSuggestions[idx])
-			p.fileOpShowSuggestions = false
-			p.fileOpSuggestionIdx = -1
-			return p, nil
+			if idx < len(p.fileOpSuggestions) {
+				p.fileOpTextInput.SetValue(p.fileOpSuggestions[idx])
+				p.fileOpShowSuggestions = false
+				p.fileOpTextInput.CursorEnd()
+				return p, nil
+			}
 		}
+
 		// Cycle focus: input(0) -> confirm(1) -> cancel(2) -> input(0)
 		p.fileOpButtonFocus = (p.fileOpButtonFocus + 1) % 3
 		if p.fileOpButtonFocus == 0 {
@@ -595,13 +597,17 @@ func (p *Plugin) handleFileOpKey(msg tea.KeyMsg) (plugin.Plugin, tea.Cmd) {
 			p.fileOpShowSuggestions = false
 			return p, nil
 		}
-		// If suggestion is selected, accept it and don't execute yet
+
+		// If suggestions active and selected, use suggestion
 		if p.fileOpMode == FileOpMove && p.fileOpShowSuggestions && p.fileOpSuggestionIdx >= 0 {
-			p.fileOpTextInput.SetValue(p.fileOpSuggestions[p.fileOpSuggestionIdx])
-			p.fileOpShowSuggestions = false
-			p.fileOpSuggestionIdx = -1
-			return p, nil
+			if p.fileOpSuggestionIdx < len(p.fileOpSuggestions) {
+				p.fileOpTextInput.SetValue(p.fileOpSuggestions[p.fileOpSuggestionIdx])
+				p.fileOpShowSuggestions = false
+				p.fileOpTextInput.CursorEnd()
+				return p, nil
+			}
 		}
+
 		// Otherwise execute file operation
 		return p.executeFileOp()
 
@@ -620,10 +626,10 @@ func (p *Plugin) handleFileOpKey(msg tea.KeyMsg) (plugin.Plugin, tea.Cmd) {
 					p.fileOpSuggestionIdx = -1
 					p.fileOpShowSuggestions = len(p.fileOpSuggestions) > 0
 				} else {
-					p.fileOpSuggestions = nil
 					p.fileOpShowSuggestions = false
 				}
 			}
+
 			return p, cmd
 		}
 		return p, nil
@@ -665,7 +671,8 @@ func (p *Plugin) handleContentSearchKey(msg tea.KeyMsg) (plugin.Plugin, tea.Cmd)
 			}
 		case "backspace":
 			if len(p.contentSearchQuery) > 0 {
-				p.contentSearchQuery = p.contentSearchQuery[:len(p.contentSearchQuery)-1]
+				runes := []rune(p.contentSearchQuery)
+				p.contentSearchQuery = string(runes[:len(runes)-1])
 				p.updateContentMatches()
 			}
 		default:
@@ -748,7 +755,8 @@ func (p *Plugin) handleQuickOpenKey(msg tea.KeyMsg) (plugin.Plugin, tea.Cmd) {
 
 	case "backspace":
 		if len(p.quickOpenQuery) > 0 {
-			p.quickOpenQuery = p.quickOpenQuery[:len(p.quickOpenQuery)-1]
+			runes := []rune(p.quickOpenQuery)
+			p.quickOpenQuery = string(runes[:len(runes)-1])
 			p.updateQuickOpenMatches()
 		}
 
@@ -872,7 +880,8 @@ func (p *Plugin) handleProjectSearchKey(msg tea.KeyMsg) (plugin.Plugin, tea.Cmd)
 
 	case "backspace":
 		if state != nil && len(state.Query) > 0 {
-			state.Query = state.Query[:len(state.Query)-1]
+			runes := []rune(state.Query)
+			state.Query = string(runes[:len(runes)-1])
 			if state.Query == "" {
 				state.Results = nil
 				state.Error = ""
@@ -925,7 +934,8 @@ func (p *Plugin) handleSearchKey(msg tea.KeyMsg) (plugin.Plugin, tea.Cmd) {
 
 	case "backspace":
 		if len(p.searchQuery) > 0 {
-			p.searchQuery = p.searchQuery[:len(p.searchQuery)-1]
+			runes := []rune(p.searchQuery)
+			p.searchQuery = string(runes[:len(runes)-1])
 			p.updateSearchMatches()
 		}
 

@@ -10,6 +10,8 @@ import (
 
 	"github.com/alecthomas/chroma/v2/quick"
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/marcus/sidecar/internal/image"
 )
 
 const (
@@ -23,6 +25,7 @@ type PreviewResult struct {
 	Lines            []string
 	HighlightedLines []string // Syntax highlighted lines
 	IsBinary         bool
+	IsImage          bool // True if file is a recognized image format
 	IsTruncated      bool
 	TotalSize        int64
 	ModTime          time.Time   // File modification time
@@ -53,6 +56,13 @@ func LoadPreview(rootDir, path string) tea.Cmd {
 			TotalSize: info.Size(),
 			ModTime:   info.ModTime(),
 			Mode:      info.Mode(),
+		}
+
+		// Check for image files BEFORE binary detection
+		// Image files are handled by the image renderer, not text preview
+		if image.IsImageFile(path) {
+			result.IsImage = true
+			return PreviewLoadedMsg{Path: path, Result: result}
 		}
 
 		// Check size limit
