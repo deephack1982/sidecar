@@ -1980,7 +1980,7 @@ func (p *Plugin) getCachedRender(msgID string, width int, expanded bool) (string
 	return cached, ok
 }
 
-// setCachedRender stores rendered content in cache with LRU eviction.
+// setCachedRender stores rendered content in cache with size-based eviction.
 func (p *Plugin) setCachedRender(msgID string, width int, expanded bool, content string) {
 	p.renderCacheMutex.Lock()
 	defer p.renderCacheMutex.Unlock()
