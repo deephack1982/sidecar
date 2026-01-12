@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -567,3 +568,365 @@ func parseMessagesFromFile(t *testing.T, a *Adapter, path string) []testMessage 
 
 	return messages
 }
+
+// =============================================================================
+// Integration tests for two-pass tool linking
+// =============================================================================
+
+// TestTwoPassToolLinking_MultipleToolUses verifies that multiple tool_use blocks
+// in a single assistant message are correctly linked to their corresponding
+// tool_result blocks in the following user message.
+func TestTwoPassToolLinking_MultipleToolUses(t *testing.T) {
+	// Create temp dir with test session
+	tmpDir := t.TempDir()
+	a := &Adapter{projectsDir: tmpDir, sessionIndex: make(map[string]string), metaCache: make(map[string]sessionMetaCacheEntry)}
+
+	projectDir := tmpDir + "/-test-project"
+	if err := os.MkdirAll(projectDir, 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	// Copy testdata
+	copyTestdataFile(t, "testdata/tool_linking.jsonl", projectDir+"/tool-linking-session.jsonl")
+
+	// Populate session index
+	a.mu.Lock()
+	a.sessionIndex["tool-linking-session"] = projectDir + "/tool-linking-session.jsonl"
+	a.mu.Unlock()
+
+	// Get messages
+	messages, err := a.Messages("tool-linking-session")
+	if err != nil {
+		t.Fatalf("Messages: %v", err)
+	}
+
+	// Find msg-002 (assistant with two Read tool uses)
+	var msg002 *adapter.Message
+	for i := range messages {
+		if messages[i].ID == "msg-002" {
+			msg002 = &messages[i]
+			break
+		}
+	}
+	if msg002 == nil {
+		t.Fatal("msg-002 not found")
+	}
+
+	// Verify two tool uses with linked results
+	if len(msg002.ToolUses) != 2 {
+		t.Fatalf("expected 2 tool uses, got %d", len(msg002.ToolUses))
+	}
+
+	// Check first tool use (toolu_read_1)
+	tu1 := msg002.ToolUses[0]
+	if tu1.ID != "toolu_read_1" {
+		t.Errorf("tu1.ID=%q, want toolu_read_1", tu1.ID)
+	}
+	if tu1.Name != "Read" {
+		t.Errorf("tu1.Name=%q, want Read", tu1.Name)
+	}
+	if tu1.Output != "package test\n\nfunc TestMain() {}" {
+		t.Errorf("tu1.Output=%q, want test file content", tu1.Output)
+	}
+
+	// Check second tool use (toolu_read_2)
+	tu2 := msg002.ToolUses[1]
+	if tu2.ID != "toolu_read_2" {
+		t.Errorf("tu2.ID=%q, want toolu_read_2", tu2.ID)
+	}
+	if tu2.Output != "package main\n\nfunc main() {}" {
+		t.Errorf("tu2.Output=%q, want main file content", tu2.Output)
+	}
+
+	// Verify ContentBlocks also have linked results
+	var toolUseBlocks []adapter.ContentBlock
+	for _, cb := range msg002.ContentBlocks {
+		if cb.Type == "tool_use" {
+			toolUseBlocks = append(toolUseBlocks, cb)
+		}
+	}
+	if len(toolUseBlocks) != 2 {
+		t.Fatalf("expected 2 tool_use content blocks, got %d", len(toolUseBlocks))
+	}
+	if toolUseBlocks[0].ToolOutput != "package test\n\nfunc TestMain() {}" {
+		t.Errorf("ContentBlock[0].ToolOutput=%q, want test file", toolUseBlocks[0].ToolOutput)
+	}
+	if toolUseBlocks[1].ToolOutput != "package main\n\nfunc main() {}" {
+		t.Errorf("ContentBlock[1].ToolOutput=%q, want main file", toolUseBlocks[1].ToolOutput)
+	}
+}
+
+// TestTwoPassToolLinking_ErrorResult verifies that tool_result with is_error=true
+// is correctly linked and the error flag is preserved.
+func TestTwoPassToolLinking_ErrorResult(t *testing.T) {
+	tmpDir := t.TempDir()
+	a := &Adapter{projectsDir: tmpDir, sessionIndex: make(map[string]string), metaCache: make(map[string]sessionMetaCacheEntry)}
+
+	projectDir := tmpDir + "/-test-project"
+	if err := os.MkdirAll(projectDir, 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	copyTestdataFile(t, "testdata/tool_linking.jsonl", projectDir+"/tool-linking-session.jsonl")
+
+	a.mu.Lock()
+	a.sessionIndex["tool-linking-session"] = projectDir + "/tool-linking-session.jsonl"
+	a.mu.Unlock()
+
+	messages, err := a.Messages("tool-linking-session")
+	if err != nil {
+		t.Fatalf("Messages: %v", err)
+	}
+
+	// Find msg-004 (assistant with Write tool use that fails)
+	var msg004 *adapter.Message
+	for i := range messages {
+		if messages[i].ID == "msg-004" {
+			msg004 = &messages[i]
+			break
+		}
+	}
+	if msg004 == nil {
+		t.Fatal("msg-004 not found")
+	}
+
+	if len(msg004.ToolUses) != 1 {
+		t.Fatalf("expected 1 tool use, got %d", len(msg004.ToolUses))
+	}
+
+	// Verify output is linked
+	if msg004.ToolUses[0].Output != "Error: permission denied" {
+		t.Errorf("Output=%q, want error message", msg004.ToolUses[0].Output)
+	}
+
+	// Verify IsError flag in ContentBlocks
+	var writeBlock *adapter.ContentBlock
+	for i := range msg004.ContentBlocks {
+		if msg004.ContentBlocks[i].Type == "tool_use" {
+			writeBlock = &msg004.ContentBlocks[i]
+			break
+		}
+	}
+	if writeBlock == nil {
+		t.Fatal("tool_use content block not found")
+	}
+	if !writeBlock.IsError {
+		t.Error("expected IsError=true for failed tool")
+	}
+}
+
+// TestTwoPassToolLinking_OrphanToolResult verifies that tool_result blocks
+// with no matching tool_use are gracefully ignored (no crash).
+func TestTwoPassToolLinking_OrphanToolResult(t *testing.T) {
+	tmpDir := t.TempDir()
+	a := &Adapter{projectsDir: tmpDir, sessionIndex: make(map[string]string), metaCache: make(map[string]sessionMetaCacheEntry)}
+
+	projectDir := tmpDir + "/-test-project"
+	if err := os.MkdirAll(projectDir, 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	copyTestdataFile(t, "testdata/tool_linking_edge_cases.jsonl", projectDir+"/edge-cases-session.jsonl")
+
+	a.mu.Lock()
+	a.sessionIndex["edge-cases-session"] = projectDir + "/edge-cases-session.jsonl"
+	a.mu.Unlock()
+
+	// Should not panic or error
+	messages, err := a.Messages("edge-cases-session")
+	if err != nil {
+		t.Fatalf("Messages: %v", err)
+	}
+
+	// Verify we got messages (orphan result should be ignored)
+	if len(messages) == 0 {
+		t.Error("expected non-empty messages")
+	}
+
+	// Find msg-002 which has a tool_use with no result
+	var msg002 *adapter.Message
+	for i := range messages {
+		if messages[i].ID == "msg-002" {
+			msg002 = &messages[i]
+			break
+		}
+	}
+	if msg002 == nil {
+		t.Fatal("msg-002 not found")
+	}
+
+	// Tool use should exist but have empty output (no matching result)
+	if len(msg002.ToolUses) != 1 {
+		t.Fatalf("expected 1 tool use, got %d", len(msg002.ToolUses))
+	}
+	if msg002.ToolUses[0].ID != "toolu_no_result" {
+		t.Errorf("expected toolu_no_result, got %q", msg002.ToolUses[0].ID)
+	}
+	if msg002.ToolUses[0].Output != "" {
+		t.Errorf("expected empty output for unlinked tool, got %q", msg002.ToolUses[0].Output)
+	}
+}
+
+// TestTwoPassToolLinking_OutOfOrderResults verifies that tool_result blocks
+// can appear in a different order than their corresponding tool_use blocks.
+func TestTwoPassToolLinking_OutOfOrderResults(t *testing.T) {
+	tmpDir := t.TempDir()
+	a := &Adapter{projectsDir: tmpDir, sessionIndex: make(map[string]string), metaCache: make(map[string]sessionMetaCacheEntry)}
+
+	projectDir := tmpDir + "/-test-project"
+	if err := os.MkdirAll(projectDir, 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	copyTestdataFile(t, "testdata/tool_linking_edge_cases.jsonl", projectDir+"/edge-cases-session.jsonl")
+
+	a.mu.Lock()
+	a.sessionIndex["edge-cases-session"] = projectDir + "/edge-cases-session.jsonl"
+	a.mu.Unlock()
+
+	messages, err := a.Messages("edge-cases-session")
+	if err != nil {
+		t.Fatalf("Messages: %v", err)
+	}
+
+	// Find msg-004 which has toolu_nested_1 and toolu_nested_2
+	// Results come in reverse order: toolu_nested_2 first, then toolu_nested_1
+	var msg004 *adapter.Message
+	for i := range messages {
+		if messages[i].ID == "msg-004" {
+			msg004 = &messages[i]
+			break
+		}
+	}
+	if msg004 == nil {
+		t.Fatal("msg-004 not found")
+	}
+
+	if len(msg004.ToolUses) != 2 {
+		t.Fatalf("expected 2 tool uses, got %d", len(msg004.ToolUses))
+	}
+
+	// toolu_nested_1 should be first in ToolUses (order of tool_use blocks)
+	tu1 := msg004.ToolUses[0]
+	if tu1.ID != "toolu_nested_1" {
+		t.Errorf("tu1.ID=%q, want toolu_nested_1", tu1.ID)
+	}
+	if tu1.Output != "file1.txt\nfile2.txt" {
+		t.Errorf("tu1.Output=%q, want file listing", tu1.Output)
+	}
+
+	// toolu_nested_2 should be second
+	tu2 := msg004.ToolUses[1]
+	if tu2.ID != "toolu_nested_2" {
+		t.Errorf("tu2.ID=%q, want toolu_nested_2", tu2.ID)
+	}
+	if tu2.Output != "/home/user" {
+		t.Errorf("tu2.Output=%q, want /home/user", tu2.Output)
+	}
+}
+
+// TestTwoPassToolLinking_ComplexResultContent verifies handling of tool_result
+// with array content (nested content blocks) instead of simple string.
+func TestTwoPassToolLinking_ComplexResultContent(t *testing.T) {
+	tmpDir := t.TempDir()
+	a := &Adapter{projectsDir: tmpDir, sessionIndex: make(map[string]string), metaCache: make(map[string]sessionMetaCacheEntry)}
+
+	projectDir := tmpDir + "/-test-project"
+	if err := os.MkdirAll(projectDir, 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	copyTestdataFile(t, "testdata/tool_linking_edge_cases.jsonl", projectDir+"/edge-cases-session.jsonl")
+
+	a.mu.Lock()
+	a.sessionIndex["edge-cases-session"] = projectDir + "/edge-cases-session.jsonl"
+	a.mu.Unlock()
+
+	messages, err := a.Messages("edge-cases-session")
+	if err != nil {
+		t.Fatalf("Messages: %v", err)
+	}
+
+	// Find msg-006 which has toolu_complex_result with array content
+	var msg006 *adapter.Message
+	for i := range messages {
+		if messages[i].ID == "msg-006" {
+			msg006 = &messages[i]
+			break
+		}
+	}
+	if msg006 == nil {
+		t.Fatal("msg-006 not found")
+	}
+
+	if len(msg006.ToolUses) != 1 {
+		t.Fatalf("expected 1 tool use, got %d", len(msg006.ToolUses))
+	}
+
+	// Output should be JSON-marshaled array content
+	if msg006.ToolUses[0].Output == "" {
+		t.Error("expected non-empty output for complex content")
+	}
+	// Should contain the serialized JSON
+	if !strings.Contains(msg006.ToolUses[0].Output, "Complex content structure") {
+		t.Errorf("output should contain 'Complex content structure', got %q", msg006.ToolUses[0].Output)
+	}
+}
+
+// TestTwoPassToolLinking_InterleavedTextAndTools verifies correct handling when
+// text blocks are interleaved with tool_use blocks.
+func TestTwoPassToolLinking_InterleavedTextAndTools(t *testing.T) {
+	tmpDir := t.TempDir()
+	a := &Adapter{projectsDir: tmpDir, sessionIndex: make(map[string]string), metaCache: make(map[string]sessionMetaCacheEntry)}
+
+	projectDir := tmpDir + "/-test-project"
+	if err := os.MkdirAll(projectDir, 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	copyTestdataFile(t, "testdata/tool_linking_edge_cases.jsonl", projectDir+"/edge-cases-session.jsonl")
+
+	a.mu.Lock()
+	a.sessionIndex["edge-cases-session"] = projectDir + "/edge-cases-session.jsonl"
+	a.mu.Unlock()
+
+	messages, err := a.Messages("edge-cases-session")
+	if err != nil {
+		t.Fatalf("Messages: %v", err)
+	}
+
+	// Find msg-004 which has: tool_use, text, tool_use
+	var msg004 *adapter.Message
+	for i := range messages {
+		if messages[i].ID == "msg-004" {
+			msg004 = &messages[i]
+			break
+		}
+	}
+	if msg004 == nil {
+		t.Fatal("msg-004 not found")
+	}
+
+	// Verify content blocks preserve order
+	if len(msg004.ContentBlocks) != 3 {
+		t.Fatalf("expected 3 content blocks, got %d", len(msg004.ContentBlocks))
+	}
+	if msg004.ContentBlocks[0].Type != "tool_use" {
+		t.Errorf("blocks[0].Type=%q, want tool_use", msg004.ContentBlocks[0].Type)
+	}
+	if msg004.ContentBlocks[1].Type != "text" {
+		t.Errorf("blocks[1].Type=%q, want text", msg004.ContentBlocks[1].Type)
+	}
+	if msg004.ContentBlocks[2].Type != "tool_use" {
+		t.Errorf("blocks[2].Type=%q, want tool_use", msg004.ContentBlocks[2].Type)
+	}
+
+	// Both tool_use blocks should have their outputs linked
+	if msg004.ContentBlocks[0].ToolOutput == "" {
+		t.Error("blocks[0].ToolOutput should be non-empty")
+	}
+	if msg004.ContentBlocks[2].ToolOutput == "" {
+		t.Error("blocks[2].ToolOutput should be non-empty")
+	}
+}
+

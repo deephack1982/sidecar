@@ -39,7 +39,9 @@ const (
 type Adapter struct {
 	projectsDir  string
 	sessionIndex map[string]string // sessionID -> file path cache
-	mu           sync.RWMutex      // guards sessionIndex
+	metaCache    map[string]sessionMetaCacheEntry
+	mu           sync.RWMutex // guards sessionIndex
+	metaMu       sync.RWMutex // guards metaCache
 }
 
 // New creates a new Claude Code adapter.
@@ -48,6 +50,7 @@ func New() *Adapter {
 	return &Adapter{
 		projectsDir:  filepath.Join(home, ".claude", "projects"),
 		sessionIndex: make(map[string]string),
+		metaCache:    make(map[string]sessionMetaCacheEntry),
 	}
 }
 
@@ -101,20 +104,24 @@ func (a *Adapter) Sessions(projectRoot string) ([]adapter.Session, error) {
 	}
 
 	sessions := make([]adapter.Session, 0, len(entries))
-	// Reset cache on full session enumeration
-	a.mu.Lock()
-	a.sessionIndex = make(map[string]string)
-	a.mu.Unlock()
+	seenPaths := make(map[string]struct{}, len(entries))
+	// Build new index, then swap atomically to avoid race with sessionFilePath()
+	newIndex := make(map[string]string, len(entries))
 	for _, e := range entries {
 		if !strings.HasSuffix(e.Name(), ".jsonl") {
 			continue
 		}
 
 		path := filepath.Join(dir, e.Name())
-		meta, err := a.parseSessionMetadata(path)
+		info, err := e.Info()
 		if err != nil {
 			continue
 		}
+		meta, err := a.sessionMetadata(path, info)
+		if err != nil {
+			continue
+		}
+		seenPaths[path] = struct{}{}
 
 		// Use first user message as name, with fallbacks
 		name := ""
@@ -131,10 +138,8 @@ func (a *Adapter) Sessions(projectRoot string) ([]adapter.Session, error) {
 		// Detect sub-agent by filename prefix
 		isSubAgent := strings.HasPrefix(e.Name(), "agent-")
 
-		// Cache session path for fast lookup
-		a.mu.Lock()
-		a.sessionIndex[meta.SessionID] = path
-		a.mu.Unlock()
+		// Add to new index (will be swapped atomically after loop)
+		newIndex[meta.SessionID] = path
 
 		sessions = append(sessions, adapter.Session{
 			ID:           meta.SessionID,
@@ -154,10 +159,17 @@ func (a *Adapter) Sessions(projectRoot string) ([]adapter.Session, error) {
 		})
 	}
 
+	// Atomically swap in the new index
+	a.mu.Lock()
+	a.sessionIndex = newIndex
+	a.mu.Unlock()
+
 	// Sort by UpdatedAt descending (newest first)
 	sort.Slice(sessions, func(i, j int) bool {
 		return sessions[i].UpdatedAt.After(sessions[j].UpdatedAt)
 	})
+
+	a.pruneSessionMetaCache(dir, seenPaths)
 
 	return sessions, nil
 }
@@ -485,6 +497,52 @@ func (a *Adapter) parseSessionMetadata(path string) (*SessionMetadata, error) {
 	}
 
 	return meta, nil
+}
+
+type sessionMetaCacheEntry struct {
+	meta    *SessionMetadata
+	modTime time.Time
+	size    int64
+}
+
+func (a *Adapter) sessionMetadata(path string, info os.FileInfo) (*SessionMetadata, error) {
+	a.metaMu.RLock()
+	if entry, ok := a.metaCache[path]; ok && entry.size == info.Size() && entry.modTime.Equal(info.ModTime()) {
+		meta := entry.meta
+		a.metaMu.RUnlock()
+		return meta, nil
+	}
+	a.metaMu.RUnlock()
+
+	meta, err := a.parseSessionMetadata(path)
+	if err != nil {
+		return nil, err
+	}
+
+	a.metaMu.Lock()
+	a.metaCache[path] = sessionMetaCacheEntry{
+		meta:    meta,
+		modTime: info.ModTime(),
+		size:    info.Size(),
+	}
+	a.metaMu.Unlock()
+	return meta, nil
+}
+
+func (a *Adapter) pruneSessionMetaCache(dir string, seenPaths map[string]struct{}) {
+	dir = filepath.Clean(dir)
+	dirPrefix := dir + string(os.PathSeparator)
+
+	a.metaMu.Lock()
+	for path := range a.metaCache {
+		if !strings.HasPrefix(path, dirPrefix) {
+			continue
+		}
+		if _, ok := seenPaths[path]; !ok {
+			delete(a.metaCache, path)
+		}
+	}
+	a.metaMu.Unlock()
 }
 
 // shortID returns the first 8 characters of an ID, or the full ID if shorter.

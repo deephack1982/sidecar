@@ -40,6 +40,8 @@ type Adapter struct {
 	sessionIndex    map[string]string      // sessionID -> file path cache
 	totalUsageCache map[string]*TokenUsage // sessionID -> total usage (populated by Messages)
 	mu              sync.RWMutex           // guards sessionIndex and totalUsageCache
+	metaCache       map[string]sessionMetaCacheEntry
+	metaMu          sync.RWMutex // guards metaCache
 }
 
 // New creates a new Codex adapter.
@@ -49,6 +51,7 @@ func New() *Adapter {
 		sessionsDir:     filepath.Join(home, ".codex", "sessions"),
 		sessionIndex:    make(map[string]string),
 		totalUsageCache: make(map[string]*TokenUsage),
+		metaCache:       make(map[string]sessionMetaCacheEntry),
 	}
 }
 
@@ -68,7 +71,7 @@ func (a *Adapter) Detect(projectRoot string) (bool, error) {
 		return false, err
 	}
 	for _, path := range files {
-		meta, err := a.parseSessionMetadata(path)
+		meta, err := a.sessionMetadata(path)
 		if err != nil {
 			continue
 		}
@@ -97,11 +100,12 @@ func (a *Adapter) Sessions(projectRoot string) ([]adapter.Session, error) {
 	}
 
 	sessions := make([]adapter.Session, 0, len(files))
-	a.mu.Lock()
-	a.sessionIndex = make(map[string]string)
-	a.mu.Unlock()
+	seenPaths := make(map[string]struct{}, len(files))
+	// Build new index, then swap atomically to avoid race with sessionFilePath()
+	newIndex := make(map[string]string, len(files))
 	for _, path := range files {
-		meta, err := a.parseSessionMetadata(path)
+		seenPaths[path] = struct{}{}
+		meta, err := a.sessionMetadata(path)
 		if err != nil {
 			continue
 		}
@@ -131,14 +135,20 @@ func (a *Adapter) Sessions(projectRoot string) ([]adapter.Session, error) {
 			MessageCount: meta.MsgCount,
 		})
 
-		a.mu.Lock()
-		a.sessionIndex[meta.SessionID] = path
-		a.mu.Unlock()
+		// Add to new index (will be swapped atomically after loop)
+		newIndex[meta.SessionID] = path
 	}
+
+	// Atomically swap in the new index
+	a.mu.Lock()
+	a.sessionIndex = newIndex
+	a.mu.Unlock()
 
 	sort.Slice(sessions, func(i, j int) bool {
 		return sessions[i].UpdatedAt.After(sessions[j].UpdatedAt)
 	})
+
+	a.pruneSessionMetaCache(seenPaths)
 
 	return sessions, nil
 }
@@ -400,6 +410,51 @@ func (a *Adapter) sessionFiles() ([]string, error) {
 	return files, nil
 }
 
+type sessionMetaCacheEntry struct {
+	meta    *SessionMetadata
+	modTime time.Time
+	size    int64
+}
+
+func (a *Adapter) sessionMetadata(path string) (*SessionMetadata, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+
+	a.metaMu.RLock()
+	if entry, ok := a.metaCache[path]; ok && entry.size == info.Size() && entry.modTime.Equal(info.ModTime()) {
+		meta := entry.meta
+		a.metaMu.RUnlock()
+		return meta, nil
+	}
+	a.metaMu.RUnlock()
+
+	meta, err := a.parseSessionMetadata(path)
+	if err != nil {
+		return nil, err
+	}
+
+	a.metaMu.Lock()
+	a.metaCache[path] = sessionMetaCacheEntry{
+		meta:    meta,
+		modTime: info.ModTime(),
+		size:    info.Size(),
+	}
+	a.metaMu.Unlock()
+	return meta, nil
+}
+
+func (a *Adapter) pruneSessionMetaCache(seenPaths map[string]struct{}) {
+	a.metaMu.Lock()
+	for path := range a.metaCache {
+		if _, ok := seenPaths[path]; !ok {
+			delete(a.metaCache, path)
+		}
+	}
+	a.metaMu.Unlock()
+}
+
 func (a *Adapter) parseSessionMetadata(path string) (*SessionMetadata, error) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -546,7 +601,7 @@ func (a *Adapter) sessionFilePath(sessionID string) string {
 	}
 
 	for _, path := range files {
-		meta, err := a.parseSessionMetadata(path)
+		meta, err := a.sessionMetadata(path)
 		if err != nil {
 			continue
 		}

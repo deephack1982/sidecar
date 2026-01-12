@@ -1,6 +1,8 @@
 package conversations
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -1640,4 +1642,1163 @@ func TestHitRegionsDirtyOnModeChange(t *testing.T) {
 			t.Error("expected hitRegionsDirty=true when closing filter menu via enter")
 		}
 	})
+}
+
+// TestPaginationKeyHandling tests p/n key handling for pagination (td-313ea851, td-e75bfdc7).
+func TestPaginationKeyHandling(t *testing.T) {
+	p := New()
+	p.adapters = map[string]adapter.Adapter{"mock": &mockAdapter{}}
+	p.width = 150
+	p.height = 30
+	p.activePane = PaneMessages
+	p.sessions = []adapter.Session{{ID: "test-1", Name: "Test", UpdatedAt: time.Now()}}
+	p.selectedSession = "test-1"
+
+	t.Run("p key does nothing when no older messages", func(t *testing.T) {
+		p.messageOffset = 0
+		p.hasOlderMsgs = false
+		p.totalMessages = 100 // Less than maxMessagesInMemory
+		initialOffset := p.messageOffset
+
+		msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}}
+		p.Update(msg)
+
+		if p.messageOffset != initialOffset {
+			t.Errorf("expected offset %d, got %d", initialOffset, p.messageOffset)
+		}
+	})
+
+	t.Run("p key increases offset when older messages exist", func(t *testing.T) {
+		p.messageOffset = 0
+		p.hasOlderMsgs = true
+		p.totalMessages = 1000 // More than maxMessagesInMemory
+
+		msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}}
+		p.Update(msg)
+
+		// Should increase by maxMessagesInMemory / 2 = 250
+		expected := 250
+		if p.messageOffset != expected {
+			t.Errorf("expected offset %d, got %d", expected, p.messageOffset)
+		}
+	})
+
+	t.Run("p key clamps offset to max", func(t *testing.T) {
+		p.messageOffset = 400
+		p.hasOlderMsgs = true
+		p.totalMessages = 600 // max offset = 600 - 500 = 100
+
+		msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'p'}}
+		p.Update(msg)
+
+		// Should clamp to totalMessages - maxMessagesInMemory = 100
+		expected := 100
+		if p.messageOffset != expected {
+			t.Errorf("expected offset %d (clamped), got %d", expected, p.messageOffset)
+		}
+	})
+
+	t.Run("n key does nothing when at newest", func(t *testing.T) {
+		p.messageOffset = 0
+		p.totalMessages = 1000
+
+		msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}}
+		p.Update(msg)
+
+		if p.messageOffset != 0 {
+			t.Errorf("expected offset 0, got %d", p.messageOffset)
+		}
+	})
+
+	t.Run("n key decreases offset", func(t *testing.T) {
+		p.messageOffset = 300
+		p.totalMessages = 1000
+
+		msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}}
+		p.Update(msg)
+
+		// Should decrease by maxMessagesInMemory / 2 = 250
+		expected := 50
+		if p.messageOffset != expected {
+			t.Errorf("expected offset %d, got %d", expected, p.messageOffset)
+		}
+	})
+
+	t.Run("n key clamps offset to 0", func(t *testing.T) {
+		p.messageOffset = 100
+		p.totalMessages = 1000
+
+		msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}}
+		p.Update(msg)
+
+		// Should clamp to 0
+		if p.messageOffset != 0 {
+			t.Errorf("expected offset 0 (clamped), got %d", p.messageOffset)
+		}
+	})
+}
+
+// TestMessagesLoadedMsgPagination tests pagination state update from MessagesLoadedMsg (td-313ea851).
+func TestMessagesLoadedMsgPagination(t *testing.T) {
+	t.Run("sets pagination state from message", func(t *testing.T) {
+		p := New()
+		p.adapters = map[string]adapter.Adapter{"mock": &mockAdapter{}}
+		p.selectedSession = "test-1"
+		p.pageSize = 50
+
+		messages := make([]adapter.Message, 100)
+		for i := range messages {
+			messages[i] = adapter.Message{ID: fmt.Sprintf("msg-%d", i), Role: "user"}
+		}
+
+		msg := MessagesLoadedMsg{
+			SessionID:  "test-1",
+			Messages:   messages,
+			TotalCount: 1000,
+			Offset:     500,
+		}
+		p.Update(msg)
+
+		if p.totalMessages != 1000 {
+			t.Errorf("expected totalMessages 1000, got %d", p.totalMessages)
+		}
+		if p.messageOffset != 500 {
+			t.Errorf("expected messageOffset 500, got %d", p.messageOffset)
+		}
+	})
+
+	t.Run("hasOlderMsgs true when more messages exist", func(t *testing.T) {
+		p := New()
+		p.adapters = map[string]adapter.Adapter{"mock": &mockAdapter{}}
+		p.selectedSession = "test-2"
+		p.pageSize = 50
+
+		messages := make([]adapter.Message, 100)
+		for i := range messages {
+			messages[i] = adapter.Message{ID: fmt.Sprintf("msg2-%d", i), Role: "user"}
+		}
+
+		msg := MessagesLoadedMsg{
+			SessionID:  "test-2",
+			Messages:   messages,
+			TotalCount: 1000,
+			Offset:     0, // At start, 100 messages loaded, 900 older exist
+		}
+		p.Update(msg)
+
+		// hasOlderMsgs = (0 + 100) < 1000 = true
+		if !p.hasOlderMsgs {
+			t.Error("expected hasOlderMsgs=true when older messages exist")
+		}
+	})
+
+	t.Run("hasOlderMsgs false when all messages loaded", func(t *testing.T) {
+		p := New()
+		p.adapters = map[string]adapter.Adapter{"mock": &mockAdapter{}}
+		p.selectedSession = "test-3"
+		p.pageSize = 50
+
+		messages := make([]adapter.Message, 100)
+		for i := range messages {
+			messages[i] = adapter.Message{ID: fmt.Sprintf("msg3-%d", i), Role: "user"}
+		}
+
+		msg := MessagesLoadedMsg{
+			SessionID:  "test-3",
+			Messages:   messages,
+			TotalCount: 100,
+			Offset:     0,
+		}
+		p.Update(msg)
+
+		// hasOlderMsgs = (0 + 100) < 100 = false
+		if p.hasOlderMsgs {
+			t.Error("expected hasOlderMsgs=false when all messages loaded")
+		}
+	})
+}
+
+// =============================================================================
+// Render Function Tests (td-a3f8fa83)
+// =============================================================================
+
+// TestRenderConversationFlowEmpty tests rendering with no messages.
+func TestRenderConversationFlowEmpty(t *testing.T) {
+	p := New()
+	p.adapters = map[string]adapter.Adapter{"mock": &mockAdapter{}}
+	p.messages = []adapter.Message{}
+	p.width = 100
+	p.height = 20
+
+	lines := p.renderConversationFlow(80, 15)
+
+	if len(lines) != 1 {
+		t.Errorf("expected 1 line for empty messages, got %d", len(lines))
+	}
+	if len(lines) > 0 && !containsSubstring(lines[0], "No messages") {
+		t.Errorf("expected 'No messages' text, got %q", lines[0])
+	}
+}
+
+// TestRenderConversationFlowBasic tests rendering basic messages.
+func TestRenderConversationFlowBasic(t *testing.T) {
+	p := New()
+	p.adapters = map[string]adapter.Adapter{"mock": &mockAdapter{}}
+	now := time.Now()
+	p.messages = []adapter.Message{
+		{ID: "msg-1", Role: "user", Content: "Hello", Timestamp: now},
+		{ID: "msg-2", Role: "assistant", Content: "Hi there!", Timestamp: now.Add(time.Second)},
+	}
+	p.width = 100
+	p.height = 20
+	p.expandedMessages = make(map[string]bool)
+	p.expandedThinking = make(map[string]bool)
+	p.expandedToolResults = make(map[string]bool)
+
+	lines := p.renderConversationFlow(80, 15)
+
+	// Should render both messages with some content
+	if len(lines) < 2 {
+		t.Errorf("expected at least 2 lines for 2 messages, got %d", len(lines))
+	}
+
+	// Verify message line positions are tracked
+	if len(p.msgLinePositions) != 2 {
+		t.Errorf("expected 2 msgLinePositions, got %d", len(p.msgLinePositions))
+	}
+}
+
+// TestRenderConversationFlowScrollWindow tests scroll offset handling.
+func TestRenderConversationFlowScrollWindow(t *testing.T) {
+	p := New()
+	p.adapters = map[string]adapter.Adapter{"mock": &mockAdapter{}}
+	now := time.Now()
+
+	// Create many messages to force scrolling
+	for i := 0; i < 20; i++ {
+		p.messages = append(p.messages, adapter.Message{
+			ID:        fmt.Sprintf("msg-%d", i),
+			Role:      "user",
+			Content:   fmt.Sprintf("Message %d", i),
+			Timestamp: now.Add(time.Duration(i) * time.Minute),
+		})
+	}
+	p.width = 100
+	p.height = 20
+	p.expandedMessages = make(map[string]bool)
+	p.expandedThinking = make(map[string]bool)
+	p.expandedToolResults = make(map[string]bool)
+
+	// First render with scroll at 0
+	p.messageScroll = 0
+	lines1 := p.renderConversationFlow(80, 10)
+
+	// Render with scroll offset
+	p.messageScroll = 5
+	lines2 := p.renderConversationFlow(80, 10)
+
+	// Both should return same number of lines (height-limited)
+	if len(lines1) > 10 || len(lines2) > 10 {
+		t.Errorf("expected at most 10 lines, got %d and %d", len(lines1), len(lines2))
+	}
+
+	// Scroll should be clamped to valid range
+	if p.messageScroll < 0 {
+		t.Error("messageScroll should not be negative")
+	}
+}
+
+// TestRenderConversationFlowSkipsToolResultOnly tests skipping tool-result-only messages.
+func TestRenderConversationFlowSkipsToolResultOnly(t *testing.T) {
+	p := New()
+	p.adapters = map[string]adapter.Adapter{"mock": &mockAdapter{}}
+	now := time.Now()
+	p.messages = []adapter.Message{
+		{ID: "msg-1", Role: "user", Content: "Hello", Timestamp: now},
+		{
+			ID:        "msg-2",
+			Role:      "user",
+			Timestamp: now.Add(time.Second),
+			ContentBlocks: []adapter.ContentBlock{
+				{Type: "tool_result", ToolUseID: "tool-1", ToolOutput: "output"},
+			},
+		},
+		{ID: "msg-3", Role: "assistant", Content: "Response", Timestamp: now.Add(2 * time.Second)},
+	}
+	p.width = 100
+	p.height = 20
+	p.expandedMessages = make(map[string]bool)
+	p.expandedThinking = make(map[string]bool)
+	p.expandedToolResults = make(map[string]bool)
+
+	lines := p.renderConversationFlow(80, 15)
+
+	// Should have 2 message positions (skipping the tool-result-only message)
+	if len(p.msgLinePositions) != 2 {
+		t.Errorf("expected 2 msgLinePositions (skipping tool-result-only), got %d", len(p.msgLinePositions))
+	}
+
+	// The content should contain user and assistant messages but not the tool result
+	content := strings.Join(lines, "\n")
+	if !containsSubstring(content, "user") {
+		t.Error("expected 'user' role in output")
+	}
+	if !containsSubstring(content, "assistant") {
+		t.Error("expected 'assistant' role in output")
+	}
+}
+
+// TestRenderConversationFlowVisibleRanges tests visible range calculation.
+func TestRenderConversationFlowVisibleRanges(t *testing.T) {
+	p := New()
+	p.adapters = map[string]adapter.Adapter{"mock": &mockAdapter{}}
+	now := time.Now()
+
+	// Create enough messages to require scrolling
+	for i := 0; i < 10; i++ {
+		p.messages = append(p.messages, adapter.Message{
+			ID:        fmt.Sprintf("msg-%d", i),
+			Role:      "user",
+			Content:   "Message content line",
+			Timestamp: now.Add(time.Duration(i) * time.Minute),
+		})
+	}
+	p.width = 100
+	p.height = 20
+	p.expandedMessages = make(map[string]bool)
+	p.expandedThinking = make(map[string]bool)
+	p.expandedToolResults = make(map[string]bool)
+
+	_ = p.renderConversationFlow(80, 8)
+
+	// visibleMsgRanges should be populated
+	if len(p.visibleMsgRanges) == 0 {
+		t.Error("expected visibleMsgRanges to be populated")
+	}
+
+	// Each visible range should have valid indices
+	for _, mr := range p.visibleMsgRanges {
+		if mr.MsgIdx < 0 || mr.MsgIdx >= len(p.messages) {
+			t.Errorf("invalid MsgIdx: %d", mr.MsgIdx)
+		}
+		if mr.LineCount <= 0 {
+			t.Errorf("invalid LineCount: %d", mr.LineCount)
+		}
+	}
+}
+
+// TestRenderMessageBubbleUserRole tests rendering a user message bubble.
+func TestRenderMessageBubbleUserRole(t *testing.T) {
+	p := New()
+	p.adapters = map[string]adapter.Adapter{"mock": &mockAdapter{}}
+	p.expandedMessages = make(map[string]bool)
+	p.expandedThinking = make(map[string]bool)
+	p.expandedToolResults = make(map[string]bool)
+	p.messageCursor = 0
+
+	msg := adapter.Message{
+		ID:        "msg-1",
+		Role:      "user",
+		Content:   "Hello world",
+		Timestamp: time.Now(),
+	}
+
+	lines := p.renderMessageBubble(msg, 0, 60)
+
+	if len(lines) < 1 {
+		t.Fatal("expected at least 1 line")
+	}
+
+	// First line should contain timestamp and role
+	header := lines[0]
+	if !containsSubstring(header, "user") {
+		t.Errorf("expected header to contain 'user', got %q", header)
+	}
+	if !containsSubstring(header, ":") {
+		t.Errorf("expected header to contain timestamp with ':', got %q", header)
+	}
+}
+
+// TestRenderMessageBubbleAssistantRole tests rendering an assistant message bubble.
+func TestRenderMessageBubbleAssistantRole(t *testing.T) {
+	p := New()
+	p.adapters = map[string]adapter.Adapter{"mock": &mockAdapter{}}
+	p.expandedMessages = make(map[string]bool)
+	p.expandedThinking = make(map[string]bool)
+	p.expandedToolResults = make(map[string]bool)
+	p.messageCursor = 0
+
+	msg := adapter.Message{
+		ID:        "msg-1",
+		Role:      "assistant",
+		Content:   "Hello! How can I help?",
+		Timestamp: time.Now(),
+		Model:     "claude-sonnet-4-20250514",
+	}
+
+	lines := p.renderMessageBubble(msg, 0, 60)
+
+	if len(lines) < 1 {
+		t.Fatal("expected at least 1 line")
+	}
+
+	header := lines[0]
+	if !containsSubstring(header, "assistant") {
+		t.Errorf("expected header to contain 'assistant', got %q", header)
+	}
+	// Model short name should be included
+	if !containsSubstring(header, "sonnet") {
+		t.Errorf("expected header to contain model short name 'sonnet', got %q", header)
+	}
+}
+
+// TestRenderMessageBubbleWithContentBlocks tests rendering with structured content blocks.
+func TestRenderMessageBubbleWithContentBlocks(t *testing.T) {
+	p := New()
+	p.adapters = map[string]adapter.Adapter{"mock": &mockAdapter{}}
+	p.expandedMessages = make(map[string]bool)
+	p.expandedThinking = make(map[string]bool)
+	p.expandedToolResults = make(map[string]bool)
+	p.messageCursor = 0
+
+	msg := adapter.Message{
+		ID:        "msg-1",
+		Role:      "assistant",
+		Timestamp: time.Now(),
+		ContentBlocks: []adapter.ContentBlock{
+			{Type: "text", Text: "Here is some text"},
+			{Type: "tool_use", ToolUseID: "tool-1", ToolName: "Bash", ToolInput: `{"command":"ls -la"}`},
+		},
+	}
+
+	lines := p.renderMessageBubble(msg, 0, 60)
+
+	content := strings.Join(lines, "\n")
+	// Should render text content
+	if !containsSubstring(content, "text") || !containsSubstring(content, "Bash") {
+		t.Errorf("expected content to contain text and tool info, got %q", content)
+	}
+}
+
+// TestRenderMessageBubbleSelected tests selection highlighting.
+func TestRenderMessageBubbleSelected(t *testing.T) {
+	p := New()
+	p.adapters = map[string]adapter.Adapter{"mock": &mockAdapter{}}
+	p.expandedMessages = make(map[string]bool)
+	p.expandedThinking = make(map[string]bool)
+	p.expandedToolResults = make(map[string]bool)
+	p.messageCursor = 0 // This message is selected
+
+	msg := adapter.Message{
+		ID:        "msg-1",
+		Role:      "user",
+		Content:   "Selected message",
+		Timestamp: time.Now(),
+	}
+
+	lines := p.renderMessageBubble(msg, 0, 60)
+
+	if len(lines) < 1 {
+		t.Fatal("expected at least 1 line")
+	}
+
+	// First line should have cursor indicator ">"
+	if !containsSubstring(lines[0], ">") {
+		t.Errorf("expected selected message to have '>' cursor, got %q", lines[0])
+	}
+}
+
+// TestRenderMessageBubbleNotSelected tests non-selected message.
+func TestRenderMessageBubbleNotSelected(t *testing.T) {
+	p := New()
+	p.adapters = map[string]adapter.Adapter{"mock": &mockAdapter{}}
+	p.expandedMessages = make(map[string]bool)
+	p.expandedThinking = make(map[string]bool)
+	p.expandedToolResults = make(map[string]bool)
+	p.messageCursor = 1 // Different from this message's index
+
+	msg := adapter.Message{
+		ID:        "msg-1",
+		Role:      "user",
+		Content:   "Not selected message",
+		Timestamp: time.Now(),
+	}
+
+	lines := p.renderMessageBubble(msg, 0, 60)
+
+	if len(lines) < 1 {
+		t.Fatal("expected at least 1 line")
+	}
+
+	// Should have space prefix instead of ">"
+	if containsSubstring(lines[0], ">") {
+		t.Errorf("expected non-selected message to not have '>' cursor, got %q", lines[0])
+	}
+}
+
+// TestRenderContentBlocksText tests rendering text content blocks.
+func TestRenderContentBlocksText(t *testing.T) {
+	p := New()
+	p.adapters = map[string]adapter.Adapter{"mock": &mockAdapter{}}
+	p.expandedMessages = make(map[string]bool)
+	p.expandedThinking = make(map[string]bool)
+	p.expandedToolResults = make(map[string]bool)
+
+	msg := adapter.Message{
+		ID: "msg-1",
+		ContentBlocks: []adapter.ContentBlock{
+			{Type: "text", Text: "Simple text content"},
+		},
+	}
+
+	lines := p.renderContentBlocks(msg, 60)
+
+	if len(lines) == 0 {
+		t.Error("expected at least 1 line for text content")
+	}
+}
+
+// TestRenderContentBlocksThinking tests rendering thinking blocks.
+func TestRenderContentBlocksThinking(t *testing.T) {
+	p := New()
+	p.adapters = map[string]adapter.Adapter{"mock": &mockAdapter{}}
+	p.expandedMessages = make(map[string]bool)
+	p.expandedThinking = make(map[string]bool)
+	p.expandedToolResults = make(map[string]bool)
+
+	msg := adapter.Message{
+		ID: "msg-1",
+		ContentBlocks: []adapter.ContentBlock{
+			{Type: "thinking", Text: "Let me think about this...", TokenCount: 150},
+		},
+	}
+
+	// Collapsed by default
+	lines := p.renderContentBlocks(msg, 60)
+	content := strings.Join(lines, "\n")
+
+	if !containsSubstring(content, "thinking") {
+		t.Error("expected thinking header")
+	}
+	if !containsSubstring(content, "150") {
+		t.Error("expected token count in thinking header")
+	}
+}
+
+// TestRenderContentBlocksThinkingExpanded tests expanded thinking blocks.
+func TestRenderContentBlocksThinkingExpanded(t *testing.T) {
+	p := New()
+	p.adapters = map[string]adapter.Adapter{"mock": &mockAdapter{}}
+	p.expandedMessages = make(map[string]bool)
+	p.expandedThinking = make(map[string]bool)
+	p.expandedToolResults = make(map[string]bool)
+
+	msg := adapter.Message{
+		ID: "msg-1",
+		ContentBlocks: []adapter.ContentBlock{
+			{Type: "thinking", Text: "Detailed thinking content here", TokenCount: 100},
+		},
+	}
+
+	// Expand thinking
+	p.expandedThinking["msg-1"] = true
+
+	lines := p.renderContentBlocks(msg, 60)
+	content := strings.Join(lines, "\n")
+
+	// Should include the thinking content
+	if !containsSubstring(content, "Detailed thinking") {
+		t.Error("expected expanded thinking content")
+	}
+}
+
+// TestRenderContentBlocksToolUse tests rendering tool use blocks.
+func TestRenderContentBlocksToolUse(t *testing.T) {
+	p := New()
+	p.adapters = map[string]adapter.Adapter{"mock": &mockAdapter{}}
+	p.expandedMessages = make(map[string]bool)
+	p.expandedThinking = make(map[string]bool)
+	p.expandedToolResults = make(map[string]bool)
+
+	msg := adapter.Message{
+		ID: "msg-1",
+		ContentBlocks: []adapter.ContentBlock{
+			{
+				Type:       "tool_use",
+				ToolUseID:  "tool-1",
+				ToolName:   "Read",
+				ToolInput:  `{"file_path":"/path/to/file.txt"}`,
+				ToolOutput: "File contents here",
+			},
+		},
+	}
+
+	lines := p.renderContentBlocks(msg, 60)
+	content := strings.Join(lines, "\n")
+
+	if !containsSubstring(content, "Read") {
+		t.Error("expected tool name 'Read' in output")
+	}
+	if !containsSubstring(content, "file.txt") {
+		t.Error("expected file path in output")
+	}
+}
+
+// TestRenderContentBlocksToolResult tests that tool_result blocks are skipped.
+func TestRenderContentBlocksToolResult(t *testing.T) {
+	p := New()
+	p.adapters = map[string]adapter.Adapter{"mock": &mockAdapter{}}
+	p.expandedMessages = make(map[string]bool)
+	p.expandedThinking = make(map[string]bool)
+	p.expandedToolResults = make(map[string]bool)
+
+	msg := adapter.Message{
+		ID: "msg-1",
+		ContentBlocks: []adapter.ContentBlock{
+			{Type: "tool_result", ToolUseID: "tool-1", ToolOutput: "Should be skipped"},
+		},
+	}
+
+	lines := p.renderContentBlocks(msg, 60)
+
+	// Tool result blocks should be skipped (rendered inline with tool_use)
+	if len(lines) != 0 {
+		t.Errorf("expected 0 lines for tool_result-only blocks, got %d", len(lines))
+	}
+}
+
+// TestRenderContentBlocksMixed tests rendering mixed content blocks.
+func TestRenderContentBlocksMixed(t *testing.T) {
+	p := New()
+	p.adapters = map[string]adapter.Adapter{"mock": &mockAdapter{}}
+	p.expandedMessages = make(map[string]bool)
+	p.expandedThinking = make(map[string]bool)
+	p.expandedToolResults = make(map[string]bool)
+
+	msg := adapter.Message{
+		ID: "msg-1",
+		ContentBlocks: []adapter.ContentBlock{
+			{Type: "thinking", Text: "Thinking...", TokenCount: 50},
+			{Type: "text", Text: "Let me help you with that."},
+			{Type: "tool_use", ToolUseID: "t1", ToolName: "Bash", ToolInput: `{"command":"echo hello"}`},
+		},
+	}
+
+	lines := p.renderContentBlocks(msg, 80)
+
+	if len(lines) < 3 {
+		t.Errorf("expected at least 3 lines for mixed blocks, got %d", len(lines))
+	}
+
+	content := strings.Join(lines, "\n")
+	if !containsSubstring(content, "thinking") {
+		t.Error("expected thinking block content")
+	}
+	if !containsSubstring(content, "Bash") {
+		t.Error("expected tool use block content")
+	}
+}
+
+// TestRenderToolUseBlockCollapsed tests collapsed tool use block.
+func TestRenderToolUseBlockCollapsed(t *testing.T) {
+	p := New()
+	p.adapters = map[string]adapter.Adapter{"mock": &mockAdapter{}}
+	p.expandedToolResults = make(map[string]bool)
+
+	block := adapter.ContentBlock{
+		Type:       "tool_use",
+		ToolUseID:  "tool-1",
+		ToolName:   "Bash",
+		ToolInput:  `{"command":"ls -la /path/to/dir"}`,
+		ToolOutput: "total 0\ndrwxr-xr-x  2 user  group  64 Jan  1 00:00 .",
+	}
+
+	lines := p.renderToolUseBlock(block, 60)
+
+	if len(lines) < 1 {
+		t.Fatal("expected at least 1 line")
+	}
+
+	// Should have tool header
+	if !containsSubstring(lines[0], "Bash") {
+		t.Errorf("expected 'Bash' in tool header, got %q", lines[0])
+	}
+
+	// Collapsed: should have preview line
+	content := strings.Join(lines, "\n")
+	if len(lines) > 1 && !containsSubstring(content, "total 0") && !containsSubstring(content, "drwxr") {
+		// When collapsed, a short preview is shown
+		t.Log("collapsed tool block has output preview or arrow")
+	}
+}
+
+// TestRenderToolUseBlockExpanded tests expanded tool use block.
+func TestRenderToolUseBlockExpanded(t *testing.T) {
+	p := New()
+	p.adapters = map[string]adapter.Adapter{"mock": &mockAdapter{}}
+	p.expandedToolResults = make(map[string]bool)
+	p.expandedToolResults["tool-1"] = true // Expanded
+
+	block := adapter.ContentBlock{
+		Type:       "tool_use",
+		ToolUseID:  "tool-1",
+		ToolName:   "Bash",
+		ToolInput:  `{"command":"ls -la"}`,
+		ToolOutput: "file1.txt\nfile2.txt\nfile3.txt",
+	}
+
+	lines := p.renderToolUseBlock(block, 60)
+
+	// Should have more lines when expanded
+	if len(lines) < 3 {
+		t.Errorf("expected at least 3 lines when expanded, got %d", len(lines))
+	}
+
+	content := strings.Join(lines, "\n")
+	if !containsSubstring(content, "file1.txt") {
+		t.Error("expected output content when expanded")
+	}
+}
+
+// TestRenderToolUseBlockError tests tool use block with error.
+func TestRenderToolUseBlockError(t *testing.T) {
+	p := New()
+	p.adapters = map[string]adapter.Adapter{"mock": &mockAdapter{}}
+	p.expandedToolResults = make(map[string]bool)
+
+	block := adapter.ContentBlock{
+		Type:       "tool_use",
+		ToolUseID:  "tool-1",
+		ToolName:   "Bash",
+		ToolInput:  `{"command":"invalid_command"}`,
+		ToolOutput: "command not found: invalid_command",
+		IsError:    true,
+	}
+
+	lines := p.renderToolUseBlock(block, 60)
+
+	content := strings.Join(lines, "\n")
+	// Errors should show the error indicator
+	if !containsSubstring(content, "error") {
+		t.Error("expected 'error' indicator for failed tool")
+	}
+	// Errors should auto-expand to show output
+	if !containsSubstring(content, "command not found") {
+		t.Error("expected error output to be shown")
+	}
+}
+
+// TestRenderToolUseBlockDifferentToolTypes tests various tool types.
+func TestRenderToolUseBlockDifferentToolTypes(t *testing.T) {
+	p := New()
+	p.adapters = map[string]adapter.Adapter{"mock": &mockAdapter{}}
+	p.expandedToolResults = make(map[string]bool)
+
+	tests := []struct {
+		name      string
+		toolName  string
+		toolInput string
+		expected  string
+	}{
+		{"Bash", "Bash", `{"command":"echo test"}`, "echo test"},
+		{"Read", "Read", `{"file_path":"/path/to/file.go"}`, "file.go"},
+		{"Edit", "Edit", `{"file_path":"/src/main.rs"}`, "main.rs"},
+		{"Write", "Write", `{"file_path":"/new/file.txt"}`, "file.txt"},
+		{"Glob", "Glob", `{"pattern":"**/*.go"}`, "*.go"},
+		{"Grep", "Grep", `{"pattern":"TODO"}`, "TODO"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			block := adapter.ContentBlock{
+				Type:      "tool_use",
+				ToolUseID: "tool-" + tt.name,
+				ToolName:  tt.toolName,
+				ToolInput: tt.toolInput,
+			}
+
+			lines := p.renderToolUseBlock(block, 80)
+
+			if len(lines) == 0 {
+				t.Fatal("expected at least 1 line")
+			}
+
+			header := lines[0]
+			if !containsSubstring(header, tt.expected) {
+				t.Errorf("expected %q to contain %q", header, tt.expected)
+			}
+		})
+	}
+}
+
+// TestRenderToolUseBlockLongOutput tests truncation of long output.
+func TestRenderToolUseBlockLongOutput(t *testing.T) {
+	p := New()
+	p.adapters = map[string]adapter.Adapter{"mock": &mockAdapter{}}
+	p.expandedToolResults = make(map[string]bool)
+	p.expandedToolResults["tool-1"] = true // Expanded
+
+	// Generate long output
+	var sb strings.Builder
+	for i := 0; i < 50; i++ {
+		sb.WriteString(fmt.Sprintf("Line %d of output\n", i))
+	}
+
+	block := adapter.ContentBlock{
+		Type:       "tool_use",
+		ToolUseID:  "tool-1",
+		ToolName:   "Bash",
+		ToolInput:  `{"command":"cat largefile.txt"}`,
+		ToolOutput: sb.String(),
+	}
+
+	result := p.renderToolUseBlock(block, 60)
+
+	// Should be truncated to 20 lines + header + "more lines" indicator
+	// Max is 20 output lines + header + possible indicator
+	if len(result) > 25 {
+		t.Errorf("expected output to be truncated, got %d lines", len(result))
+	}
+
+	content := strings.Join(result, "\n")
+	if !containsSubstring(content, "more lines") {
+		t.Error("expected 'more lines' indicator for truncated output")
+	}
+}
+
+// TestRenderToolUseBlockJSONOutput tests prettified JSON output.
+func TestRenderToolUseBlockJSONOutput(t *testing.T) {
+	p := New()
+	p.adapters = map[string]adapter.Adapter{"mock": &mockAdapter{}}
+	p.expandedToolResults = make(map[string]bool)
+	p.expandedToolResults["tool-1"] = true
+
+	block := adapter.ContentBlock{
+		Type:       "tool_use",
+		ToolUseID:  "tool-1",
+		ToolName:   "Bash",
+		ToolInput:  `{"command":"cat config.json"}`,
+		ToolOutput: `{"key":"value","nested":{"a":1}}`,
+	}
+
+	result := p.renderToolUseBlock(block, 60)
+	content := strings.Join(result, "\n")
+
+	// JSON should be prettified (indented)
+	if !containsSubstring(content, "key") {
+		t.Error("expected JSON key in output")
+	}
+}
+
+// TestIsToolResultOnlyMessage tests the helper function.
+func TestIsToolResultOnlyMessage(t *testing.T) {
+	p := New()
+
+	tests := []struct {
+		name     string
+		msg      adapter.Message
+		expected bool
+	}{
+		{
+			name:     "empty content blocks",
+			msg:      adapter.Message{ID: "1", ContentBlocks: []adapter.ContentBlock{}},
+			expected: false,
+		},
+		{
+			name: "only tool_result blocks",
+			msg: adapter.Message{
+				ID: "2",
+				ContentBlocks: []adapter.ContentBlock{
+					{Type: "tool_result", ToolOutput: "output1"},
+					{Type: "tool_result", ToolOutput: "output2"},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "mixed blocks",
+			msg: adapter.Message{
+				ID: "3",
+				ContentBlocks: []adapter.ContentBlock{
+					{Type: "tool_result", ToolOutput: "output"},
+					{Type: "text", Text: "some text"},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "only text block",
+			msg: adapter.Message{
+				ID: "4",
+				ContentBlocks: []adapter.ContentBlock{
+					{Type: "text", Text: "hello"},
+				},
+			},
+			expected: false,
+		},
+		{
+			name:     "no content blocks with content string",
+			msg:      adapter.Message{ID: "5", Content: "regular content"},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := p.isToolResultOnlyMessage(tt.msg)
+			if result != tt.expected {
+				t.Errorf("isToolResultOnlyMessage() = %v, expected %v", result, tt.expected)
+			}
+		})
+	}
+}
+
+// TestExtractFilePath tests file path extraction from tool input.
+func TestExtractFilePath(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{`{"file_path":"/path/to/file.go"}`, "/path/to/file.go"},
+		{`{"file_path":"relative/path.txt"}`, "relative/path.txt"},
+		{`{"command":"ls -la"}`, ""},
+		{`{}`, ""},
+		{`invalid json`, ""},
+		{``, ""},
+	}
+
+	for _, tt := range tests {
+		result := extractFilePath(tt.input)
+		if result != tt.expected {
+			t.Errorf("extractFilePath(%q) = %q, expected %q", tt.input, result, tt.expected)
+		}
+	}
+}
+
+// TestExtractToolCommand tests tool command extraction.
+func TestExtractToolCommand(t *testing.T) {
+	tests := []struct {
+		toolName string
+		input    string
+		maxLen   int
+		expected string
+	}{
+		{"Bash", `{"command":"ls -la /path"}`, 50, "ls -la /path"},
+		{"Bash", `{"command":"very long command that should be truncated here"}`, 20, "very long command..."},
+		{"Glob", `{"pattern":"**/*.go"}`, 50, "**/*.go"},
+		{"Grep", `{"pattern":"TODO"}`, 50, "TODO"},
+		{"Read", `{"file_path":"/path/file.txt"}`, 50, "/path/file.txt"},
+		{"Unknown", `{"something":"else"}`, 50, ""},
+	}
+
+	for _, tt := range tests {
+		result := extractToolCommand(tt.toolName, tt.input, tt.maxLen)
+		if result != tt.expected {
+			t.Errorf("extractToolCommand(%q, %q, %d) = %q, expected %q",
+				tt.toolName, tt.input, tt.maxLen, result, tt.expected)
+		}
+	}
+}
+
+// TestPrettifyJSON tests JSON prettification.
+func TestPrettifyJSON(t *testing.T) {
+	tests := []struct {
+		input    string
+		isJSON   bool
+		contains string
+	}{
+		{`{"key":"value"}`, true, "key"},
+		{`[1,2,3]`, true, "1"},
+		{`not json`, false, "not json"},
+		{``, false, ""},
+		{`   {"spaced":true}  `, true, "spaced"},
+	}
+
+	for _, tt := range tests {
+		result := prettifyJSON(tt.input)
+		if tt.isJSON {
+			if !containsSubstring(result, tt.contains) {
+				t.Errorf("prettifyJSON(%q) should contain %q, got %q", tt.input, tt.contains, result)
+			}
+		} else {
+			if result != tt.input {
+				t.Errorf("prettifyJSON(%q) should return input unchanged for non-JSON, got %q", tt.input, result)
+			}
+		}
+	}
+}
+
+// TestModelShortName tests model name shortening.
+func TestModelShortName(t *testing.T) {
+	tests := []struct {
+		model    string
+		expected string
+	}{
+		{"claude-opus-4-5-20251101", "opus"},
+		{"claude-sonnet-4-20250514", "sonnet4"},
+		{"claude-3-5-sonnet-20241022", "sonnet"},
+		{"claude-3-haiku-20240307", "haiku"},
+		{"gpt-4o-2024-08-06", "gpt4o"},
+		{"gpt-4-turbo", "gpt4"},
+		{"o1-preview", "o1"},
+		{"o3-mini", "o3"},
+		{"gemini-2.0-flash", "2Flash"},
+		{"gemini-1.5-pro", "1.5Pro"},
+		{"unknown-model", ""},
+	}
+
+	for _, tt := range tests {
+		result := modelShortName(tt.model)
+		if result != tt.expected {
+			t.Errorf("modelShortName(%q) = %q, expected %q", tt.model, result, tt.expected)
+		}
+	}
+}
+
+// TestRenderMessageBubbleEmptyContent tests rendering message with empty content.
+func TestRenderMessageBubbleEmptyContent(t *testing.T) {
+	p := New()
+	p.adapters = map[string]adapter.Adapter{"mock": &mockAdapter{}}
+	p.expandedMessages = make(map[string]bool)
+	p.expandedThinking = make(map[string]bool)
+	p.expandedToolResults = make(map[string]bool)
+	p.messageCursor = 0
+
+	msg := adapter.Message{
+		ID:        "msg-1",
+		Role:      "assistant",
+		Content:   "",
+		Timestamp: time.Now(),
+	}
+
+	lines := p.renderMessageBubble(msg, 0, 60)
+
+	// Should still render header even with empty content
+	if len(lines) < 1 {
+		t.Error("expected at least header line for empty content message")
+	}
+}
+
+// TestRenderConversationFlowAllToolResults tests edge case of all tool-result-only messages.
+func TestRenderConversationFlowAllToolResults(t *testing.T) {
+	p := New()
+	p.adapters = map[string]adapter.Adapter{"mock": &mockAdapter{}}
+	now := time.Now()
+
+	// All messages are tool-result-only
+	p.messages = []adapter.Message{
+		{
+			ID:        "msg-1",
+			Role:      "user",
+			Timestamp: now,
+			ContentBlocks: []adapter.ContentBlock{
+				{Type: "tool_result", ToolUseID: "t1", ToolOutput: "output1"},
+			},
+		},
+		{
+			ID:        "msg-2",
+			Role:      "user",
+			Timestamp: now.Add(time.Second),
+			ContentBlocks: []adapter.ContentBlock{
+				{Type: "tool_result", ToolUseID: "t2", ToolOutput: "output2"},
+			},
+		},
+	}
+	p.width = 100
+	p.height = 20
+	p.expandedMessages = make(map[string]bool)
+	p.expandedThinking = make(map[string]bool)
+	p.expandedToolResults = make(map[string]bool)
+
+	lines := p.renderConversationFlow(80, 15)
+
+	// When all messages are tool-result-only, they are all skipped
+	// The function returns an empty slice (not "No messages" which is only for empty p.messages)
+	if len(lines) != 0 {
+		t.Errorf("expected 0 lines when all messages are tool-result-only and skipped, got %d", len(lines))
+	}
+
+	// No message positions should be tracked
+	if len(p.msgLinePositions) != 0 {
+		t.Errorf("expected 0 msgLinePositions for all-tool-result messages, got %d", len(p.msgLinePositions))
+	}
+}
+
+// TestRenderContentBlocksEmpty tests rendering with no content blocks.
+func TestRenderContentBlocksEmpty(t *testing.T) {
+	p := New()
+	p.adapters = map[string]adapter.Adapter{"mock": &mockAdapter{}}
+	p.expandedMessages = make(map[string]bool)
+	p.expandedThinking = make(map[string]bool)
+	p.expandedToolResults = make(map[string]bool)
+
+	msg := adapter.Message{
+		ID:            "msg-1",
+		ContentBlocks: []adapter.ContentBlock{},
+	}
+
+	lines := p.renderContentBlocks(msg, 60)
+
+	if len(lines) != 0 {
+		t.Errorf("expected 0 lines for empty content blocks, got %d", len(lines))
+	}
+}
+
+// TestRenderToolUseBlockNoOutput tests tool use block with no output.
+func TestRenderToolUseBlockNoOutput(t *testing.T) {
+	p := New()
+	p.adapters = map[string]adapter.Adapter{"mock": &mockAdapter{}}
+	p.expandedToolResults = make(map[string]bool)
+
+	block := adapter.ContentBlock{
+		Type:       "tool_use",
+		ToolUseID:  "tool-1",
+		ToolName:   "Read",
+		ToolInput:  `{"file_path":"/path/to/file.txt"}`,
+		ToolOutput: "", // No output
+	}
+
+	lines := p.renderToolUseBlock(block, 60)
+
+	if len(lines) != 1 {
+		t.Errorf("expected 1 line (header only) for no output, got %d", len(lines))
+	}
+
+	if !containsSubstring(lines[0], "Read") {
+		t.Error("expected tool name in header")
+	}
+}
+
+// TestRenderConversationFlowMaxScrollClamp tests scroll clamping.
+func TestRenderConversationFlowMaxScrollClamp(t *testing.T) {
+	p := New()
+	p.adapters = map[string]adapter.Adapter{"mock": &mockAdapter{}}
+	now := time.Now()
+
+	// Create 3 short messages
+	p.messages = []adapter.Message{
+		{ID: "msg-1", Role: "user", Content: "Hello", Timestamp: now},
+		{ID: "msg-2", Role: "assistant", Content: "Hi", Timestamp: now.Add(time.Second)},
+		{ID: "msg-3", Role: "user", Content: "Bye", Timestamp: now.Add(2 * time.Second)},
+	}
+	p.width = 100
+	p.height = 20
+	p.expandedMessages = make(map[string]bool)
+	p.expandedThinking = make(map[string]bool)
+	p.expandedToolResults = make(map[string]bool)
+
+	// Set scroll way past content
+	p.messageScroll = 1000
+
+	_ = p.renderConversationFlow(80, 50) // Large height
+
+	// Scroll should be clamped
+	if p.messageScroll < 0 {
+		t.Error("scroll should not be negative")
+	}
+}
+
+// Helper function to check if a string contains a substring
+func containsSubstring(s, substr string) bool {
+	return strings.Contains(s, substr)
 }

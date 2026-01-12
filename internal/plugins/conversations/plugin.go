@@ -26,7 +26,8 @@ const (
 	defaultPageSize     = 50
 	maxMessagesInMemory = 500
 
-	previewDebounce = 150 * time.Millisecond
+	previewDebounce     = 150 * time.Millisecond
+	watchReloadDebounce = 200 * time.Millisecond
 
 	// Divider width for pane separator
 	dividerWidth = 1
@@ -42,11 +43,11 @@ const (
 	regionSidebar     = "sidebar"
 	regionMainPane    = "main-pane"
 	regionPaneDivider = "pane-divider"
-	regionSessionItem = "session-item"  // Individual session row (Data: session index)
-	regionTurnItem    = "turn-item"     // Individual turn row (Data: turn index)
-	regionMessageItem = "message-item"  // Conversation flow: click to select (Data: msg index)
-	regionToolExpand  = "tool-expand"   // Conversation flow: toggle tool output (Data: tool_use_id)
-	regionShowMore    = "show-more"     // Conversation flow: expand long message (Data: msg ID)
+	regionSessionItem = "session-item" // Individual session row (Data: session index)
+	regionTurnItem    = "turn-item"    // Individual turn row (Data: turn index)
+	regionMessageItem = "message-item" // Conversation flow: click to select (Data: msg index)
+	regionToolExpand  = "tool-expand"  // Conversation flow: toggle tool output (Data: tool_use_id)
+	regionShowMore    = "show-more"    // Conversation flow: expand long message (Data: msg ID)
 )
 
 // View represents the current view mode.
@@ -90,27 +91,27 @@ type Plugin struct {
 	scrollOff int
 
 	// Message view state
-	selectedSession  string
-	loadedSession    string // sessionID that p.messages currently represent
-	messages         []adapter.Message
-	turns            []Turn // messages grouped into turns
-	turnCursor       int    // cursor for turn selection in list view
-	turnScrollOff    int    // scroll offset for turns
-	msgCursor        int
-	msgScrollOff     int
-	pageSize         int
-	hasMore          bool
+	selectedSession string
+	loadedSession   string // sessionID that p.messages currently represent
+	messages        []adapter.Message
+	turns           []Turn // messages grouped into turns
+	turnCursor      int    // cursor for turn selection in list view
+	turnScrollOff   int    // scroll offset for turns
+	msgCursor       int
+	msgScrollOff    int
+	pageSize        int
+	hasMore         bool
 
 	// Pagination state (td-313ea851)
-	messageOffset  int // Start index in full message list (0 = most recent)
-	totalMessages  int // Total message count from adapter
-	hasOlderMsgs   bool // True if there are older messages to load
-	expandedThinking map[string]bool // message ID -> thinking expanded
-	sessionSummary     *SessionSummary  // computed summary for current session
-	summaryModelCounts map[string]int   // model usage counts for incremental summary updates
-	summaryFileSet     map[string]bool  // unique files for incremental summary updates
-	showToolSummary    bool             // toggle for tool impact view
-	turnViewMode       bool             // false = conversation flow (default), true = turn view
+	messageOffset      int             // Start index in full message list (0 = most recent)
+	totalMessages      int             // Total message count from adapter
+	hasOlderMsgs       bool            // True if there are older messages to load
+	expandedThinking   map[string]bool // message ID -> thinking expanded
+	sessionSummary     *SessionSummary // computed summary for current session
+	summaryModelCounts map[string]int  // model usage counts for incremental summary updates
+	summaryFileSet     map[string]bool // unique files for incremental summary updates
+	showToolSummary    bool            // toggle for tool impact view
+	turnViewMode       bool            // false = conversation flow (default), true = turn view
 
 	// Message detail view state
 	detailMode   bool  // true when showing detail in right pane (two-pane mode)
@@ -122,9 +123,10 @@ type Plugin struct {
 	analyticsLines     []string // pre-rendered lines for scrolling
 
 	// Layout state
-	activePane   FocusPane // Which pane is focused
-	sidebarWidth int       // Calculated width (~30%)
-	previewToken int       // monotonically increasing token for debounced preview loads
+	activePane         FocusPane // Which pane is focused
+	sidebarWidth       int       // Calculated width (~30%)
+	previewToken       int       // monotonically increasing token for debounced preview loads
+	messageReloadToken int       // monotonically increasing token for debounced watch reloads
 
 	// View dimensions
 	width  int
@@ -342,6 +344,15 @@ func (p *Plugin) Update(msg tea.Msg) (plugin.Plugin, tea.Cmd) {
 			p.loadUsage(msg.SessionID),
 		)
 
+	case MessageReloadMsg:
+		if msg.Token != p.messageReloadToken {
+			return p, nil
+		}
+		if msg.SessionID == "" || msg.SessionID != p.selectedSession {
+			return p, nil
+		}
+		return p, p.loadMessages(msg.SessionID)
+
 	case MessagesLoadedMsg:
 		if msg.SessionID == "" || msg.SessionID != p.selectedSession {
 			// Ignore out-of-order loads when cursor moves quickly.
@@ -445,7 +456,7 @@ func (p *Plugin) Update(msg tea.Msg) (plugin.Plugin, tea.Cmd) {
 		// Still reload messages immediately if selected session changed
 		// (coalescer handles session list refresh)
 		if msg.SessionID != "" && msg.SessionID == p.selectedSession {
-			cmds = append(cmds, p.loadMessages(p.selectedSession))
+			cmds = append(cmds, p.scheduleMessageReload(p.selectedSession))
 		}
 
 		return p, tea.Batch(cmds...)
@@ -526,6 +537,17 @@ func (p *Plugin) schedulePreviewLoad(sessionID string) tea.Cmd {
 	token := p.previewToken
 	return tea.Tick(previewDebounce, func(time.Time) tea.Msg {
 		return PreviewLoadMsg{Token: token, SessionID: sessionID}
+	})
+}
+
+func (p *Plugin) scheduleMessageReload(sessionID string) tea.Cmd {
+	if sessionID == "" {
+		return nil
+	}
+	p.messageReloadToken++
+	token := p.messageReloadToken
+	return tea.Tick(watchReloadDebounce, func(time.Time) tea.Msg {
+		return MessageReloadMsg{Token: token, SessionID: sessionID}
 	})
 }
 
@@ -1923,8 +1945,8 @@ type SessionsLoadedMsg struct {
 type MessagesLoadedMsg struct {
 	SessionID  string
 	Messages   []adapter.Message
-	TotalCount int  // Total message count before truncation (td-313ea851)
-	Offset     int  // Offset into the message list (td-313ea851)
+	TotalCount int // Total message count before truncation (td-313ea851)
+	Offset     int // Offset into the message list (td-313ea851)
 }
 
 type WatchEventMsg struct {
@@ -1936,6 +1958,11 @@ type WatchStartedMsg struct {
 type ErrorMsg struct{ Err error }
 
 type PreviewLoadMsg struct {
+	Token     int
+	SessionID string
+}
+
+type MessageReloadMsg struct {
 	Token     int
 	SessionID string
 }

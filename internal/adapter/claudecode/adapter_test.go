@@ -292,7 +292,7 @@ func TestSlugExtraction(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Create adapter with custom projects dir
-	a := &Adapter{projectsDir: tmpDir}
+	a := &Adapter{projectsDir: tmpDir, sessionIndex: make(map[string]string), metaCache: make(map[string]sessionMetaCacheEntry)}
 
 	// Create project hash dir (simulates -home-user-project)
 	projectHash := "-test-project"
@@ -338,7 +338,7 @@ func TestSlugExtraction(t *testing.T) {
 func TestSlugExtraction_NoSlug(t *testing.T) {
 	// Create temp dir
 	tmpDir := t.TempDir()
-	a := &Adapter{projectsDir: tmpDir}
+	a := &Adapter{projectsDir: tmpDir, sessionIndex: make(map[string]string), metaCache: make(map[string]sessionMetaCacheEntry)}
 
 	projectDir := tmpDir + "/-test-project"
 	if err := os.MkdirAll(projectDir, 0755); err != nil {
@@ -371,7 +371,7 @@ func TestSlugExtraction_NoSlug(t *testing.T) {
 func TestSlugExtraction_SessionsIntegration(t *testing.T) {
 	// Create temp dir with project structure
 	tmpDir := t.TempDir()
-	a := &Adapter{projectsDir: tmpDir}
+	a := &Adapter{projectsDir: tmpDir, sessionIndex: make(map[string]string), metaCache: make(map[string]sessionMetaCacheEntry)}
 
 	// Create project hash dir that matches what projectDirPath would generate
 	// For path "/test/project", the hash is "-test-project"
@@ -431,7 +431,7 @@ func TestSlugExtraction_SessionsIntegration(t *testing.T) {
 func TestSlugExtraction_SlugOnLaterMessage(t *testing.T) {
 	// Test that slug is extracted even if it appears on a later message
 	tmpDir := t.TempDir()
-	a := &Adapter{projectsDir: tmpDir}
+	a := &Adapter{projectsDir: tmpDir, sessionIndex: make(map[string]string), metaCache: make(map[string]sessionMetaCacheEntry)}
 
 	projectDir := tmpDir + "/-test-project"
 	if err := os.MkdirAll(projectDir, 0755); err != nil {
