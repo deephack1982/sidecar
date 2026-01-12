@@ -112,13 +112,6 @@ func (p *Plugin) renderView() string {
 
 // renderNormalPanes renders the standard 2-pane layout without modals.
 func (p *Plugin) renderNormalPanes() string {
-
-	p.calculatePaneWidths()
-
-	// Determine if panes are active based on focus
-	treeActive := p.activePane == PaneTree && !p.searchMode && !p.contentSearchMode
-	previewActive := p.activePane == PanePreview && !p.searchMode && !p.contentSearchMode
-
 	// Account for input bar if active (content search or file op)
 	// Note: tree search bar is rendered inside the tree pane, not here
 	inputBarHeight := 0
@@ -142,6 +135,44 @@ func (p *Plugin) renderNormalPanes() string {
 	if innerHeight < 1 {
 		innerHeight = 1
 	}
+
+	// Handle collapsed tree - render full-width preview pane
+	if !p.treeVisible {
+		previewWidth := p.width - 2 // Account for borders
+		if previewWidth < 40 {
+			previewWidth = 40
+		}
+
+		previewContent := p.renderPreviewPane(innerHeight)
+		rightPane := styles.RenderPanel(previewContent, previewWidth, paneHeight, true)
+
+		// Build final layout
+		var parts []string
+
+		// Add content search bar if in content search mode
+		if p.contentSearchMode {
+			parts = append(parts, p.renderContentSearchBar())
+		}
+
+		// Add file operation bar if in file operation mode
+		if p.fileOpMode != FileOpNone {
+			parts = append(parts, p.renderFileOpBar())
+		}
+
+		parts = append(parts, rightPane)
+
+		// Update hit regions for collapsed state
+		p.mouseHandler.Clear()
+		p.mouseHandler.HitMap.AddRect(regionPreviewPane, 0, inputBarHeight, previewWidth, paneHeight, nil)
+
+		return lipgloss.JoinVertical(lipgloss.Left, parts...)
+	}
+
+	p.calculatePaneWidths()
+
+	// Determine if panes are active based on focus
+	treeActive := p.activePane == PaneTree && !p.searchMode && !p.contentSearchMode
+	previewActive := p.activePane == PanePreview && !p.searchMode && !p.contentSearchMode
 
 	treeContent := p.renderTreePane(innerHeight)
 	previewContent := p.renderPreviewPane(innerHeight)

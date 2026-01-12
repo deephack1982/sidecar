@@ -226,6 +226,23 @@ Each plugin returns a context string that determines which bindings are active.
 | `global` | Default when no plugin-specific context |
 | `""` | Empty string treated as global |
 
+### Unified Sidebar Controls
+
+All plugins with two-pane layouts (Git, Conversations, Files) share consistent sidebar shortcuts:
+
+| Key | Action | Description |
+|-----|--------|-------------|
+| `Tab` | Switch focus | Move focus between sidebar and main pane |
+| `\` | Toggle sidebar | Collapse/expand the sidebar pane |
+| `h`/`left` | Focus left | Move focus to sidebar pane |
+| `l`/`right` | Focus right | Move focus to main pane |
+
+**Behavior notes:**
+- `Tab` only switches focus between panes (doesn't toggle visibility)
+- `\` collapses sidebar to give main pane full width, or restores it
+- When sidebar is collapsed, focus automatically moves to main pane
+- When sidebar is restored with `\`, focus moves to sidebar
+
 ### Conversations Plugin
 | Context | View | Description |
 |---------|------|-------------|
@@ -265,6 +282,7 @@ Each plugin returns a context string that determines which bindings are active.
 | `n` | next-match | Next search match |
 | `N` | prev-match | Previous search match |
 | `v` | toggle-graph | Toggle commit graph (tree view) |
+| `\` | toggle-sidebar | Collapse/expand sidebar |
 
 ### File Browser Plugin
 | Context | View | Description |
@@ -292,6 +310,7 @@ Each plugin returns a context string that determines which bindings are active.
 | `r` | rename | Rename file/directory |
 | `m` | move | Move file/directory |
 | `R` | reveal | Reveal in system file manager |
+| `\` | toggle-sidebar | Collapse/expand tree pane |
 
 ### TD Monitor Plugin
 
@@ -459,6 +478,7 @@ func (p *Plugin) Commands() []plugin.Command {
 {Key: "~", Command: "prev-plugin", Context: "global"}
 {Key: "up", Command: "cursor-up", Context: "global"}
 {Key: "down", Command: "cursor-down", Context: "global"}
+{Key: "\\", Command: "toggle-sidebar", Context: "git-status"}
 
 // Sequences (space-separated, 500ms timeout)
 {Key: "g g", Command: "cursor-top", Context: "global"}

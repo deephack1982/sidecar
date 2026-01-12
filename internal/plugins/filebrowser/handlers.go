@@ -312,6 +312,20 @@ func (p *Plugin) handleTreeKey(key string) (plugin.Plugin, tea.Cmd) {
 			}
 			p.jumpToSearchMatch()
 		}
+
+	case "tab":
+		// Switch focus to preview pane (if tree visible and file selected)
+		if p.treeVisible && p.previewFile != "" {
+			p.activePane = PanePreview
+		}
+
+	case "\\":
+		// Toggle tree pane visibility
+		p.treeVisible = !p.treeVisible
+		if !p.treeVisible {
+			// When hiding tree, focus moves to preview pane
+			p.activePane = PanePreview
+		}
 	}
 
 	return p, nil
@@ -426,6 +440,21 @@ func (p *Plugin) handlePreviewKey(key string) (plugin.Plugin, tea.Cmd) {
 		// Toggle markdown rendering for .md files
 		if p.isMarkdownFile() {
 			p.toggleMarkdownRender()
+		}
+
+	case "tab":
+		// Switch focus to tree pane (if visible)
+		if p.treeVisible {
+			p.activePane = PaneTree
+		}
+
+	case "\\":
+		// Toggle tree pane visibility
+		p.treeVisible = !p.treeVisible
+		if !p.treeVisible {
+			p.activePane = PanePreview
+		} else {
+			p.activePane = PaneTree
 		}
 	}
 

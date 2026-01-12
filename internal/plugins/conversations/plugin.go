@@ -123,8 +123,9 @@ type Plugin struct {
 	analyticsLines     []string // pre-rendered lines for scrolling
 
 	// Layout state
-	activePane         FocusPane // Which pane is focused
-	sidebarWidth       int       // Calculated width (~30%)
+	activePane     FocusPane // Which pane is focused
+	sidebarWidth   int       // Calculated width (~30%)
+	sidebarVisible bool      // Toggle sidebar visibility with \
 	previewToken       int       // monotonically increasing token for debounced preview loads
 	messageReloadToken int       // monotonically increasing token for debounced watch reloads
 
@@ -210,6 +211,7 @@ func New() *Plugin {
 		coalesceChan:        coalesceChan,
 		renderCache:         make(map[renderCacheKey]string),
 		hitRegionsDirty:     true, // Start dirty to ensure first render builds regions
+		sidebarVisible:      true, // Sidebar visible by default
 	}
 	p.coalescer = NewEventCoalescer(0, coalesceChan)
 	return p
@@ -631,8 +633,16 @@ func (p *Plugin) updateSessions(msg tea.KeyMsg) (plugin.Plugin, tea.Cmd) {
 		}
 
 	case "tab":
-		// Toggle focus to messages pane
-		if p.selectedSession != "" {
+		// Switch focus to messages pane (if sidebar visible)
+		if p.selectedSession != "" && p.sidebarVisible {
+			p.activePane = PaneMessages
+		}
+
+	case "\\":
+		// Toggle sidebar visibility
+		p.sidebarVisible = !p.sidebarVisible
+		if !p.sidebarVisible {
+			// When hiding sidebar, focus moves to messages pane
 			p.activePane = PaneMessages
 		}
 
@@ -925,8 +935,20 @@ func (p *Plugin) updateMessages(msg tea.KeyMsg) (plugin.Plugin, tea.Cmd) {
 		return p, nil
 
 	case "tab":
-		// Toggle focus to sidebar
-		p.activePane = PaneSidebar
+		// Switch focus to sidebar (if visible)
+		if p.sidebarVisible {
+			p.activePane = PaneSidebar
+		}
+		return p, nil
+
+	case "\\":
+		// Toggle sidebar visibility
+		p.sidebarVisible = !p.sidebarVisible
+		if !p.sidebarVisible {
+			p.activePane = PaneMessages
+		} else {
+			p.activePane = PaneSidebar
+		}
 		return p, nil
 
 	case "j", "down":
@@ -1314,6 +1336,7 @@ func (p *Plugin) Commands() []plugin.Command {
 			{ID: "expand", Name: "Expand", Description: "Expand selected item", Category: plugin.CategoryView, Context: "conversations-main", Priority: 3},
 			{ID: "back", Name: "Back", Description: "Return to sidebar", Category: plugin.CategoryNavigation, Context: "conversations-main", Priority: 4},
 			{ID: "yank", Name: "Yank", Description: "Yank turn content", Category: plugin.CategoryActions, Context: "conversations-main", Priority: 5},
+			{ID: "toggle-sidebar", Name: "Panel", Description: "Toggle sidebar visibility", Category: plugin.CategoryView, Context: "conversations-main", Priority: 6},
 		}
 	}
 	if p.view == ViewAnalytics {
@@ -1322,11 +1345,12 @@ func (p *Plugin) Commands() []plugin.Command {
 		}
 	}
 	return []plugin.Command{
-		{ID: "view-session", Name: "View", Description: "View session messages", Category: plugin.CategoryView, Context: "conversations", Priority: 1},
-		{ID: "search", Name: "Search", Description: "Search conversations", Category: plugin.CategorySearch, Context: "conversations", Priority: 2},
-		{ID: "filter", Name: "Filter", Description: "Filter by project", Category: plugin.CategorySearch, Context: "conversations", Priority: 2},
-		{ID: "yank", Name: "Yank", Description: "Yank session details", Category: plugin.CategoryActions, Context: "conversations", Priority: 3},
-		{ID: "yank-resume", Name: "Resume", Description: "Yank resume command", Category: plugin.CategoryActions, Context: "conversations", Priority: 3},
+		{ID: "view-session", Name: "View", Description: "View session messages", Category: plugin.CategoryView, Context: "conversations-sidebar", Priority: 1},
+		{ID: "search", Name: "Search", Description: "Search conversations", Category: plugin.CategorySearch, Context: "conversations-sidebar", Priority: 2},
+		{ID: "filter", Name: "Filter", Description: "Filter by project", Category: plugin.CategorySearch, Context: "conversations-sidebar", Priority: 2},
+		{ID: "yank", Name: "Yank", Description: "Yank session details", Category: plugin.CategoryActions, Context: "conversations-sidebar", Priority: 3},
+		{ID: "yank-resume", Name: "Resume", Description: "Yank resume command", Category: plugin.CategoryActions, Context: "conversations-sidebar", Priority: 3},
+		{ID: "toggle-sidebar", Name: "Panel", Description: "Toggle sidebar visibility", Category: plugin.CategoryView, Context: "conversations-sidebar", Priority: 4},
 	}
 }
 

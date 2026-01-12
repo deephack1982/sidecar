@@ -685,6 +685,12 @@ func (p *Plugin) updateStatus(msg tea.KeyMsg) (plugin.Plugin, tea.Cmd) {
 		}
 
 	case "tab":
+		// Switch focus to diff pane (if sidebar visible)
+		if p.sidebarVisible && (p.selectedDiffFile != "" || p.previewCommit != nil) {
+			p.activePane = PaneDiff
+		}
+
+	case "\\":
 		// Toggle sidebar visibility
 		p.sidebarVisible = !p.sidebarVisible
 		if !p.sidebarVisible {
@@ -1025,6 +1031,12 @@ func (p *Plugin) updateStatusDiffPane(msg tea.KeyMsg) (plugin.Plugin, tea.Cmd) {
 		}
 
 	case "tab":
+		// Switch focus to sidebar (if visible)
+		if p.sidebarVisible {
+			p.activePane = PaneSidebar
+		}
+
+	case "\\":
 		// Toggle sidebar visibility
 		p.sidebarVisible = !p.sidebarVisible
 		if p.sidebarVisible {
@@ -1096,6 +1108,12 @@ func (p *Plugin) updateCommitPreviewPane(msg tea.KeyMsg) (plugin.Plugin, tea.Cmd
 		}
 
 	case "tab":
+		// Switch focus to sidebar (if visible)
+		if p.sidebarVisible {
+			p.activePane = PaneSidebar
+		}
+
+	case "\\":
 		// Toggle sidebar visibility
 		p.sidebarVisible = !p.sidebarVisible
 		if p.sidebarVisible {
@@ -1262,8 +1280,8 @@ func (p *Plugin) updateDiff(msg tea.KeyMsg) (plugin.Plugin, tea.Cmd) {
 		}
 		p.diffHorizOff = 0
 
-	case "tab":
-		// Toggle sidebar visibility (match status view behavior)
+	case "\\":
+		// Toggle sidebar visibility
 		p.sidebarVisible = !p.sidebarVisible
 
 	case "h", "left", "<", "H":
@@ -1376,6 +1394,7 @@ func (p *Plugin) Commands() []plugin.Command {
 		{ID: "fetch", Name: "Fetch", Description: "Fetch from remote", Category: plugin.CategoryGit, Context: "git-status", Priority: 3},
 		{ID: "pull", Name: "Pull", Description: "Pull from remote", Category: plugin.CategoryGit, Context: "git-status", Priority: 3},
 		{ID: "open-in-file-browser", Name: "Browse", Description: "Open file in file browser", Category: plugin.CategoryNavigation, Context: "git-status", Priority: 4},
+		{ID: "toggle-sidebar", Name: "Panel", Description: "Toggle sidebar visibility", Category: plugin.CategoryView, Context: "git-status", Priority: 5},
 		// git-status-commits context (recent commits in sidebar)
 		{ID: "view-commit", Name: "View", Description: "View commit details", Category: plugin.CategoryView, Context: "git-status-commits", Priority: 1},
 		{ID: "push", Name: "Push", Description: "Push commits to remote", Category: plugin.CategoryGit, Context: "git-status-commits", Priority: 2},
@@ -1388,11 +1407,13 @@ func (p *Plugin) Commands() []plugin.Command {
 		{ID: "yank-commit", Name: "Yank", Description: "Copy commit as markdown", Category: plugin.CategoryActions, Context: "git-status-commits", Priority: 3},
 		{ID: "yank-id", Name: "YankID", Description: "Copy commit ID", Category: plugin.CategoryActions, Context: "git-status-commits", Priority: 3},
 		{ID: "toggle-graph", Name: "Graph", Description: "Toggle commit graph display", Category: plugin.CategoryView, Context: "git-status-commits", Priority: 2},
+		{ID: "toggle-sidebar", Name: "Panel", Description: "Toggle sidebar visibility", Category: plugin.CategoryView, Context: "git-status-commits", Priority: 5},
 		// git-commit-preview context (commit preview in right pane)
 		{ID: "view-diff", Name: "Diff", Description: "View file diff", Category: plugin.CategoryView, Context: "git-commit-preview", Priority: 1},
 		{ID: "back", Name: "Back", Description: "Return to sidebar", Category: plugin.CategoryNavigation, Context: "git-commit-preview", Priority: 1},
 		{ID: "yank-commit", Name: "Yank", Description: "Copy commit as markdown", Category: plugin.CategoryActions, Context: "git-commit-preview", Priority: 3},
 		{ID: "yank-id", Name: "YankID", Description: "Copy commit ID", Category: plugin.CategoryActions, Context: "git-commit-preview", Priority: 3},
+		{ID: "toggle-sidebar", Name: "Panel", Description: "Toggle sidebar visibility", Category: plugin.CategoryView, Context: "git-commit-preview", Priority: 4},
 		// git-status-diff context (inline diff pane)
 		{ID: "toggle-diff-view", Name: "View", Description: "Toggle unified/split diff view", Category: plugin.CategoryView, Context: "git-status-diff", Priority: 2},
 		{ID: "toggle-sidebar", Name: "Panel", Description: "Toggle sidebar visibility", Category: plugin.CategoryView, Context: "git-status-diff", Priority: 3},

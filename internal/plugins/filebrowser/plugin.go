@@ -107,7 +107,8 @@ type Plugin struct {
 	focused bool
 
 	// Pane state
-	activePane FocusPane
+	activePane   FocusPane
+	treeVisible  bool // Toggle tree pane visibility with \
 
 	// Tree state
 	treeCursor    int
@@ -212,6 +213,7 @@ func New() *Plugin {
 	return &Plugin{
 		mouseHandler:  mouse.NewHandler(),
 		imageRenderer: image.New(), // Detect terminal graphics protocol once
+		treeVisible:   true,        // Tree pane visible by default
 	}
 }
 
@@ -552,6 +554,7 @@ func (p *Plugin) Commands() []plugin.Command {
 		{ID: "rename", Name: "Rename", Description: "Rename file or directory", Category: plugin.CategoryActions, Context: "file-browser-tree", Priority: 7},
 		{ID: "move", Name: "Move", Description: "Move file or directory", Category: plugin.CategoryActions, Context: "file-browser-tree", Priority: 7},
 		{ID: "reveal", Name: "Reveal", Description: "Reveal in file manager", Category: plugin.CategoryActions, Context: "file-browser-tree", Priority: 8},
+		{ID: "toggle-sidebar", Name: "Panel", Description: "Toggle tree pane visibility", Category: plugin.CategoryView, Context: "file-browser-tree", Priority: 9},
 		// Preview pane commands
 		{ID: "quick-open", Name: "Open", Description: "Quick open file by name", Category: plugin.CategorySearch, Context: "file-browser-preview", Priority: 1},
 		{ID: "project-search", Name: "Find", Description: "Search in project", Category: plugin.CategorySearch, Context: "file-browser-preview", Priority: 2},
@@ -562,6 +565,7 @@ func (p *Plugin) Commands() []plugin.Command {
 		{ID: "reveal", Name: "Reveal", Description: "Reveal in file manager", Category: plugin.CategoryActions, Context: "file-browser-preview", Priority: 6},
 		{ID: "yank-contents", Name: "Yank", Description: "Copy file contents", Category: plugin.CategoryActions, Context: "file-browser-preview", Priority: 7},
 		{ID: "yank-path", Name: "Path", Description: "Copy file path", Category: plugin.CategoryActions, Context: "file-browser-preview", Priority: 8},
+		{ID: "toggle-sidebar", Name: "Panel", Description: "Toggle tree pane visibility", Category: plugin.CategoryView, Context: "file-browser-preview", Priority: 9},
 		// Tree search commands
 		{ID: "confirm", Name: "Go", Description: "Jump to match", Category: plugin.CategoryNavigation, Context: "file-browser-search", Priority: 1},
 		{ID: "cancel", Name: "Cancel", Description: "Cancel search", Category: plugin.CategoryActions, Context: "file-browser-search", Priority: 1},

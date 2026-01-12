@@ -512,6 +512,39 @@ func (p *Plugin) renderTwoPane() string {
 		p.prevTurnScroll = p.turnScrollOff
 	}
 
+	// Pane height: total height - 2 for pane borders
+	paneHeight := p.height - 2
+	if paneHeight < 4 {
+		paneHeight = 4
+	}
+
+	// Inner content height = pane height - header lines (2)
+	innerHeight := paneHeight - 2
+	if innerHeight < 1 {
+		innerHeight = 1
+	}
+
+	// Handle collapsed sidebar - render full-width main pane
+	if !p.sidebarVisible {
+		mainWidth := p.width - 2 // Account for borders
+		if mainWidth < 40 {
+			mainWidth = 40
+		}
+
+		mainContent := p.renderMainPane(mainWidth, innerHeight)
+		rightPane := styles.RenderPanel(mainContent, mainWidth, paneHeight, true)
+
+		// Update hit regions for collapsed state
+		if p.hitRegionsDirty {
+			p.mouseHandler.HitMap.Clear()
+			p.mouseHandler.HitMap.AddRect(regionMainPane, 0, 0, mainWidth, p.height, nil)
+			p.registerTurnHitRegions(1, mainWidth-2, innerHeight)
+			p.hitRegionsDirty = false
+		}
+
+		return rightPane
+	}
+
 	// Calculate pane widths - account for borders (2 per pane = 4 total) plus gap and divider
 	available := p.width - 5 - dividerWidth
 	sidebarWidth := p.sidebarWidth
@@ -531,18 +564,6 @@ func (p *Plugin) renderTwoPane() string {
 
 	// Store for use by content renderers
 	p.sidebarWidth = sidebarWidth
-
-	// Pane height: total height - 2 for pane borders
-	paneHeight := p.height - 2
-	if paneHeight < 4 {
-		paneHeight = 4
-	}
-
-	// Inner content height = pane height - header lines (2)
-	innerHeight := paneHeight - 2
-	if innerHeight < 1 {
-		innerHeight = 1
-	}
 
 	// Determine if panes are active based on focus
 	sidebarActive := p.activePane == PaneSidebar

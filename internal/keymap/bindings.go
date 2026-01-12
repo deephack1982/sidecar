@@ -42,6 +42,7 @@ func DefaultBindings() []Binding {
 		{Key: "b", Command: "branch-picker", Context: "git-status"},
 		{Key: "f", Command: "fetch", Context: "git-status"},
 		{Key: "p", Command: "pull", Context: "git-status"},
+		{Key: "\\", Command: "toggle-sidebar", Context: "git-status"},
 
 		// Git Status commits context (recent commits in sidebar)
 		{Key: "enter", Command: "view-commit", Context: "git-status-commits"},
@@ -56,6 +57,7 @@ func DefaultBindings() []Binding {
 		{Key: "n", Command: "next-match", Context: "git-status-commits"},
 		{Key: "N", Command: "prev-match", Context: "git-status-commits"},
 		{Key: "v", Command: "toggle-graph", Context: "git-status-commits"},
+		{Key: "\\", Command: "toggle-sidebar", Context: "git-status-commits"},
 
 		// Git commit preview context (commit preview in right pane)
 		{Key: "esc", Command: "back", Context: "git-commit-preview"},
@@ -64,18 +66,19 @@ func DefaultBindings() []Binding {
 		{Key: "d", Command: "view-diff", Context: "git-commit-preview"},
 		{Key: "y", Command: "yank-commit", Context: "git-commit-preview"},
 		{Key: "Y", Command: "yank-id", Context: "git-commit-preview"},
+		{Key: "\\", Command: "toggle-sidebar", Context: "git-commit-preview"},
 
 		// Git Diff context
 		{Key: "esc", Command: "close-diff", Context: "git-diff"},
 		{Key: "j", Command: "scroll", Context: "git-diff"},
 		{Key: "k", Command: "scroll", Context: "git-diff"},
-		{Key: "tab", Command: "toggle-sidebar", Context: "git-diff"},
+		{Key: "\\", Command: "toggle-sidebar", Context: "git-diff"},
 		{Key: "v", Command: "toggle-diff-view", Context: "git-diff"},
 		{Key: "O", Command: "open-in-file-browser", Context: "git-diff"},
 
 		// Git Status Diff Pane context (inline diff in three-pane view)
 		{Key: "v", Command: "toggle-diff-view", Context: "git-status-diff"},
-		{Key: "tab", Command: "toggle-sidebar", Context: "git-status-diff"},
+		{Key: "\\", Command: "toggle-sidebar", Context: "git-status-diff"},
 
 		// TD Monitor bindings are registered dynamically by the TD plugin
 		// via ctx.Keymap.RegisterPluginBinding() in Init()
@@ -141,6 +144,7 @@ func DefaultBindings() []Binding {
 		{Key: "G", Command: "cursor-bottom", Context: "conversations-sidebar"},
 		{Key: "l", Command: "focus-right", Context: "conversations-sidebar"},
 		{Key: "right", Command: "focus-right", Context: "conversations-sidebar"},
+		{Key: "\\", Command: "toggle-sidebar", Context: "conversations-sidebar"},
 
 		// Conversations main context (two-pane mode, right pane focused)
 		{Key: "esc", Command: "back", Context: "conversations-main"},
@@ -153,6 +157,7 @@ func DefaultBindings() []Binding {
 		{Key: "v", Command: "toggle-view", Context: "conversations-main"},
 		{Key: "e", Command: "expand", Context: "conversations-main"},
 		{Key: "enter", Command: "detail", Context: "conversations-main"},
+		{Key: "\\", Command: "toggle-sidebar", Context: "conversations-main"},
 
 		// File browser tree context
 		{Key: "/", Command: "search", Context: "file-browser-tree"},
@@ -169,6 +174,7 @@ func DefaultBindings() []Binding {
 		{Key: "m", Command: "move", Context: "file-browser-tree"},
 		{Key: "R", Command: "reveal", Context: "file-browser-tree"},
 		{Key: "i", Command: "info", Context: "file-browser-tree"},
+		{Key: "\\", Command: "toggle-sidebar", Context: "file-browser-tree"},
 
 		// File browser preview context
 		{Key: "/", Command: "search-content", Context: "file-browser-preview"},
@@ -181,6 +187,7 @@ func DefaultBindings() []Binding {
 		{Key: "h", Command: "back", Context: "file-browser-preview"},
 		{Key: "y", Command: "yank-contents", Context: "file-browser-preview"},
 		{Key: "Y", Command: "yank-path", Context: "file-browser-preview"},
+		{Key: "\\", Command: "toggle-sidebar", Context: "file-browser-preview"},
 
 		// File browser tree search context
 		{Key: "esc", Command: "cancel", Context: "file-browser-search"},
