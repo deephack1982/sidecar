@@ -1,8 +1,9 @@
 package worktree
 
 import (
-	"sync"
+	"crypto/sha256"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -184,10 +185,12 @@ type GitStats struct {
 }
 
 // OutputBuffer is a thread-safe bounded buffer for agent output.
+// Uses SHA256 hashing to detect content changes and avoid duplicate processing.
 type OutputBuffer struct {
-	mu    sync.Mutex
-	lines []string
-	cap   int
+	mu       sync.Mutex
+	lines    []string
+	cap      int
+	lastHash [32]byte // SHA256 of last content for change detection
 }
 
 // NewOutputBuffer creates a new output buffer with the given capacity.
@@ -198,15 +201,40 @@ func NewOutputBuffer(capacity int) *OutputBuffer {
 	}
 }
 
-// Write appends content to the buffer, trimming old lines if needed.
+// Update replaces buffer content if it has changed (detected via SHA256 hash).
+// Returns true if content was updated, false if content was unchanged.
+func (b *OutputBuffer) Update(content string) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	// Compute hash of new content
+	hash := sha256.Sum256([]byte(content))
+	if hash == b.lastHash {
+		return false // Content unchanged
+	}
+
+	// Content changed - update hash and replace lines
+	b.lastHash = hash
+	b.lines = strings.Split(content, "\n")
+
+	// Trim to capacity (keep most recent lines)
+	if len(b.lines) > b.cap {
+		b.lines = b.lines[len(b.lines)-b.cap:]
+	}
+
+	return true
+}
+
+// Write replaces content in the buffer (for backward compatibility).
+// Prefer Update() for change detection.
 func (b *OutputBuffer) Write(content string) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	newLines := strings.Split(content, "\n")
-	b.lines = append(b.lines, newLines...)
+	// Replace instead of append to avoid duplication
+	b.lines = strings.Split(content, "\n")
 
-	// Trim to capacity
+	// Trim to capacity (keep most recent lines)
 	if len(b.lines) > b.cap {
 		b.lines = b.lines[len(b.lines)-b.cap:]
 	}
@@ -231,6 +259,7 @@ func (b *OutputBuffer) Clear() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.lines = b.lines[:0]
+	b.lastHash = [32]byte{} // Reset hash
 }
 
 // Len returns the number of lines in the buffer.

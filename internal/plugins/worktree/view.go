@@ -140,28 +140,10 @@ func (p *Plugin) renderListView(width, height int) string {
 func (p *Plugin) renderSidebarContent(width, height int) string {
 	var lines []string
 
-	// Header with view mode toggle
+	// Header
 	header := styles.Title.Render("Worktrees")
-	// View mode toggle tabs
-	listTab := "[List]"
-	kanbanTab := "Kanban"
-	if p.viewMode == ViewModeKanban {
-		listTab = "List"
-		kanbanTab = "[Kanban]"
-	}
-	viewToggle := styles.Muted.Render(listTab + "|" + kanbanTab)
-	toggleWidth := len(listTab) + 1 + len(kanbanTab) // +1 for separator
-	headerLine := header + strings.Repeat(" ", max(1, width-len("Worktrees")-toggleWidth)) + viewToggle
-	lines = append(lines, headerLine)
+	lines = append(lines, header)
 	lines = append(lines, "") // Empty line after header
-
-	// Register hit region for view mode toggle (Y=1 for header line inside border)
-	// X position is at the right side of the header
-	toggleX := width - toggleWidth
-	if toggleX < 0 {
-		toggleX = 0
-	}
-	p.mouseHandler.HitMap.AddRect(regionViewModeTab, toggleX, 1, toggleWidth, 1, nil)
 
 	// Track Y position for hit regions (add 3 for border + header + empty line)
 	currentY := 3

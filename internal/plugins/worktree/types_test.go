@@ -22,12 +22,16 @@ func TestOutputBuffer(t *testing.T) {
 
 	t.Run("capacity limit", func(t *testing.T) {
 		buf := NewOutputBuffer(5)
-		for i := 0; i < 10; i++ {
-			buf.Write("line")
-		}
+		// Write 10 lines - should be trimmed to last 5
+		buf.Write("line1\nline2\nline3\nline4\nline5\nline6\nline7\nline8\nline9\nline10")
 
 		if buf.Len() != 5 {
 			t.Errorf("buf.Len() = %d, want 5", buf.Len())
+		}
+		// Should keep the last 5 lines
+		lines := buf.Lines()
+		if lines[0] != "line6" {
+			t.Errorf("first line = %q, want %q", lines[0], "line6")
 		}
 	})
 
@@ -55,13 +59,13 @@ func TestOutputBuffer(t *testing.T) {
 		buf := NewOutputBuffer(100)
 		var wg sync.WaitGroup
 
-		// Concurrent writes
+		// Concurrent writes (using replace semantics)
 		for i := 0; i < 10; i++ {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
 				for j := 0; j < 100; j++ {
-					buf.Write("test line")
+					buf.Write("test line 1\ntest line 2\ntest line 3")
 				}
 			}()
 		}
@@ -79,9 +83,34 @@ func TestOutputBuffer(t *testing.T) {
 		}
 
 		wg.Wait()
-		// Just verify it didn't panic
+		// Just verify it didn't panic and has valid content
 		if buf.Len() > 100 {
 			t.Errorf("buffer exceeded capacity: %d", buf.Len())
+		}
+	})
+
+	t.Run("Update change detection", func(t *testing.T) {
+		buf := NewOutputBuffer(100)
+
+		// First update should return true (content changed)
+		if !buf.Update("content 1") {
+			t.Error("first Update() should return true")
+		}
+
+		// Same content should return false (no change)
+		if buf.Update("content 1") {
+			t.Error("Update() with same content should return false")
+		}
+
+		// Different content should return true
+		if !buf.Update("content 2") {
+			t.Error("Update() with different content should return true")
+		}
+
+		// Verify content is replaced
+		lines := buf.Lines()
+		if len(lines) != 1 || lines[0] != "content 2" {
+			t.Errorf("content = %v, want [\"content 2\"]", lines)
 		}
 	})
 }

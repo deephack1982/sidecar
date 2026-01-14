@@ -329,7 +329,13 @@ func (p *Plugin) handlePollAgent(worktreeName string) tea.Cmd {
 			return pollAgentMsg{WorktreeName: worktreeName}
 		}
 
-		// Detect status from output (pure function, no state mutation)
+		// Use hash-based change detection to skip processing if content unchanged
+		if wt.Agent.OutputBuf != nil && !wt.Agent.OutputBuf.Update(output) {
+			// Content unchanged - just schedule next poll without emitting message
+			return pollAgentMsg{WorktreeName: worktreeName}
+		}
+
+		// Content changed - detect status and emit
 		status := detectStatus(output)
 		waitingFor := ""
 		if status == StatusWaiting {
@@ -348,9 +354,11 @@ func (p *Plugin) handlePollAgent(worktreeName string) tea.Cmd {
 // capturePane captures the current content of a tmux pane.
 func capturePane(sessionName string) (string, error) {
 	// -p: Print to stdout (instead of buffer)
-	// -S: Start line (-200 = last 200 lines)
+	// -e: Preserve ANSI escape sequences (colors)
+	// -J: Join wrapped lines
+	// -S -: Capture entire scrollback history
 	// -t: Target session
-	cmd := exec.Command("tmux", "capture-pane", "-p", "-S", "-200", "-t", sessionName)
+	cmd := exec.Command("tmux", "capture-pane", "-p", "-e", "-J", "-S", "-", "-t", sessionName)
 	output, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("capture-pane: %w", err)

@@ -25,12 +25,11 @@ const (
 	dividerHitWidth = 3 // Wider hit target for drag
 
 	// Hit region IDs
-	regionSidebar             = "sidebar"
-	regionPreviewPane         = "preview-pane"
-	regionPaneDivider         = "pane-divider"
-	regionWorktreeItem        = "worktree-item"
-	regionViewModeTab         = "view-mode-tab"
-	regionPreviewTab          = "preview-tab"
+	regionSidebar            = "sidebar"
+	regionPreviewPane        = "preview-pane"
+	regionPaneDivider        = "pane-divider"
+	regionWorktreeItem       = "worktree-item"
+	regionPreviewTab         = "preview-tab"
 	regionAgentChoiceOption   = "agent-choice-option"
 	regionAgentChoiceConfirm  = "agent-choice-confirm"
 	regionAgentChoiceCancel   = "agent-choice-cancel"
@@ -359,9 +358,8 @@ func (p *Plugin) Update(msg tea.Msg) (plugin.Plugin, tea.Cmd) {
 		return p, p.handlePollAgent(msg.WorktreeName)
 
 	case AgentOutputMsg:
-		// Update state (safe - we're in Update)
+		// Update state (content already stored by Update() in handlePollAgent)
 		if wt := p.findWorktree(msg.WorktreeName); wt != nil && wt.Agent != nil {
-			wt.Agent.OutputBuf.Write(msg.Output)
 			wt.Agent.LastOutput = time.Now()
 			wt.Agent.WaitingFor = msg.WaitingFor
 			wt.Status = msg.Status
@@ -1195,13 +1193,6 @@ func (p *Plugin) handleMouseClick(action mouse.MouseAction) tea.Cmd {
 			p.ensureVisible()
 			p.activePane = PaneSidebar
 			return p.loadSelectedDiff()
-		}
-	case regionViewModeTab:
-		// Click on view mode toggle
-		if p.viewMode == ViewModeList {
-			p.viewMode = ViewModeKanban
-		} else if p.viewMode == ViewModeKanban {
-			p.viewMode = ViewModeList
 		}
 	case regionPreviewTab:
 		// Click on preview tab
