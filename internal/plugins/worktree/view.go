@@ -221,6 +221,13 @@ func (p *Plugin) renderWorktreeItem(wt *Worktree, selected bool, width int) stri
 		conflictIcon = " ⚠"
 	}
 
+	// Check for PR
+	hasPR := wt.PRURL != ""
+	prIcon := ""
+	if hasPR {
+		prIcon = " PR"
+	}
+
 	// Name and time
 	name := wt.Name
 	timeStr := formatRelativeTime(wt.UpdatedAt)
@@ -256,7 +263,7 @@ func (p *Plugin) renderWorktreeItem(wt *Worktree, selected bool, width int) stri
 	// When selected, use plain text to ensure consistent background
 	if isSelected {
 		// Build plain text lines
-		line1 := fmt.Sprintf(" %s %s%s", statusIcon, name, conflictIcon)
+		line1 := fmt.Sprintf(" %s %s%s%s", statusIcon, name, prIcon, conflictIcon)
 		line1Width := lipgloss.Width(line1)
 		timeWidth := lipgloss.Width(timeStr)
 		if line1Width < width-timeWidth-2 {
@@ -294,6 +301,12 @@ func (p *Plugin) renderWorktreeItem(wt *Worktree, selected bool, width int) stri
 		styledConflictIcon = styles.StatusModified.Render(" ⚠")
 	}
 
+	// Apply PR style
+	styledPRIcon := ""
+	if hasPR {
+		styledPRIcon = lipgloss.NewStyle().Foreground(lipgloss.Color("33")).Render(" PR") // blue
+	}
+
 	// For non-selected, style parts individually
 	var styledParts []string
 	if wt.Agent != nil {
@@ -317,7 +330,7 @@ func (p *Plugin) renderWorktreeItem(wt *Worktree, selected bool, width int) stri
 	}
 
 	// Build lines with styled elements
-	line1 := fmt.Sprintf(" %s %s%s", icon, name, styledConflictIcon)
+	line1 := fmt.Sprintf(" %s %s%s%s", icon, name, styledPRIcon, styledConflictIcon)
 	line1Width := ansi.StringWidth(line1)
 	timeWidth := ansi.StringWidth(timeStr)
 	if line1Width < width-timeWidth-2 {
@@ -1320,6 +1333,9 @@ func (p *Plugin) renderMergeModal(width, height int) string {
 		case "error":
 			icon = "✗"
 			color = lipgloss.Color("196") // red
+		case "skipped":
+			icon = "○"
+			color = lipgloss.Color("240") // gray, same as pending
 		}
 
 		// Highlight current step
@@ -1381,11 +1397,34 @@ func (p *Plugin) renderMergeModal(width, height int) string {
 			sb.WriteString("\n")
 		}
 		sb.WriteString("\n")
-		sb.WriteString("Waiting for PR to be merged...")
-		sb.WriteString("\n")
-		sb.WriteString(dimText("Checking status every 30 seconds"))
+		sb.WriteString("Checking merge status every 30 seconds...")
 		sb.WriteString("\n\n")
-		sb.WriteString(dimText("Press Enter to check now, 'c' to skip cleanup"))
+		sb.WriteString(strings.Repeat("─", min(modalW-4, 60)))
+		sb.WriteString("\n\n")
+
+		// Radio button selection
+		sb.WriteString(lipgloss.NewStyle().Bold(true).Render("After merge:"))
+		sb.WriteString("\n\n")
+
+		// Option 1: Delete worktree (default)
+		if p.mergeState.DeleteAfterMerge {
+			sb.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("62")).Render(" ● Delete worktree after merge"))
+		} else {
+			sb.WriteString(dimText(" ○ Delete worktree after merge"))
+		}
+		sb.WriteString("\n")
+
+		// Option 2: Keep worktree
+		if !p.mergeState.DeleteAfterMerge {
+			sb.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("62")).Render(" ● Keep worktree"))
+		} else {
+			sb.WriteString(dimText(" ○ Keep worktree"))
+		}
+		sb.WriteString("\n\n")
+
+		sb.WriteString(dimText(" (This takes effect only once the PR is merged)"))
+		sb.WriteString("\n\n")
+		sb.WriteString(dimText("Enter: check now   Esc: exit   ↑/↓: change option"))
 
 	case MergeStepCleanup:
 		sb.WriteString("Cleaning up worktree and branch...")
@@ -1393,7 +1432,11 @@ func (p *Plugin) renderMergeModal(width, height int) string {
 	case MergeStepDone:
 		sb.WriteString(lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("42")).Render("✓ Merge workflow complete!"))
 		sb.WriteString("\n\n")
-		sb.WriteString("Worktree and branch have been cleaned up.")
+		if p.mergeState.DeleteAfterMerge {
+			sb.WriteString("Worktree and branch have been cleaned up.")
+		} else {
+			sb.WriteString("PR merged. Worktree kept for further work.")
+		}
 		sb.WriteString("\n\n")
 		sb.WriteString(dimText("Press Enter to close"))
 	}
