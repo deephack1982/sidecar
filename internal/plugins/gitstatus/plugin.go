@@ -845,6 +845,12 @@ func (p *Plugin) updateStatus(msg tea.KeyMsg) (plugin.Plugin, tea.Cmd) {
 			return p, p.copyCommitIDToClipboard()
 		}
 
+	case "o":
+		// Open commit in GitHub (when on commit in sidebar)
+		if p.cursorOnCommit() {
+			return p, p.openCommitInGitHub()
+		}
+
 	case "D":
 		// Discard changes (confirm modal) - only for modified/staged files, not commits
 		if !p.cursorOnCommit() && len(entries) > 0 && p.cursor < len(entries) {
@@ -1148,6 +1154,10 @@ func (p *Plugin) updateCommitPreviewPane(msg tea.KeyMsg) (plugin.Plugin, tea.Cmd
 	case "Y":
 		// Yank commit ID
 		return p, p.copyCommitIDToClipboard()
+
+	case "o":
+		// Open commit in GitHub
+		return p, p.openCommitInGitHub()
 	}
 
 	return p, nil
@@ -1427,6 +1437,7 @@ func (p *Plugin) Commands() []plugin.Command {
 		{ID: "prev-match", Name: "Prev", Description: "Previous search match", Category: plugin.CategoryNavigation, Context: "git-status-commits", Priority: 4},
 		{ID: "yank-commit", Name: "Yank", Description: "Copy commit as markdown", Category: plugin.CategoryActions, Context: "git-status-commits", Priority: 3},
 		{ID: "yank-id", Name: "YankID", Description: "Copy commit ID", Category: plugin.CategoryActions, Context: "git-status-commits", Priority: 3},
+		{ID: "open-in-github", Name: "GitHub", Description: "Open commit in GitHub", Category: plugin.CategoryActions, Context: "git-status-commits", Priority: 3},
 		{ID: "toggle-graph", Name: "Graph", Description: "Toggle commit graph display", Category: plugin.CategoryView, Context: "git-status-commits", Priority: 2},
 		{ID: "toggle-sidebar", Name: "Panel", Description: "Toggle sidebar visibility", Category: plugin.CategoryView, Context: "git-status-commits", Priority: 5},
 		// git-commit-preview context (commit preview in right pane)
@@ -1434,6 +1445,7 @@ func (p *Plugin) Commands() []plugin.Command {
 		{ID: "back", Name: "Back", Description: "Return to sidebar", Category: plugin.CategoryNavigation, Context: "git-commit-preview", Priority: 1},
 		{ID: "yank-commit", Name: "Yank", Description: "Copy commit as markdown", Category: plugin.CategoryActions, Context: "git-commit-preview", Priority: 3},
 		{ID: "yank-id", Name: "YankID", Description: "Copy commit ID", Category: plugin.CategoryActions, Context: "git-commit-preview", Priority: 3},
+		{ID: "open-in-github", Name: "GitHub", Description: "Open commit in GitHub", Category: plugin.CategoryActions, Context: "git-commit-preview", Priority: 3},
 		{ID: "toggle-sidebar", Name: "Panel", Description: "Toggle sidebar visibility", Category: plugin.CategoryView, Context: "git-commit-preview", Priority: 4},
 		// git-status-diff context (inline diff pane)
 		{ID: "toggle-diff-view", Name: "View", Description: "Toggle unified/split diff view", Category: plugin.CategoryView, Context: "git-status-diff", Priority: 2},

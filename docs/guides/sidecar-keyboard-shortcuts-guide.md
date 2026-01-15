@@ -282,6 +282,7 @@ All plugins with two-pane layouts (Git, Conversations, Files) share consistent s
 | `F` | clear-filter | Clear history filters |
 | `n` | next-match | Next search match |
 | `N` | prev-match | Previous search match |
+| `o` | open-in-github | Open commit in GitHub |
 | `v` | toggle-graph | Toggle commit graph (tree view) |
 | `\` | toggle-sidebar | Collapse/expand sidebar |
 

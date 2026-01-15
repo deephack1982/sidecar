@@ -63,6 +63,7 @@ func DefaultBindings() []Binding {
 		{Key: "N", Command: "prev-match", Context: "git-status-commits"},
 		{Key: "v", Command: "toggle-graph", Context: "git-status-commits"},
 		{Key: "\\", Command: "toggle-sidebar", Context: "git-status-commits"},
+		{Key: "o", Command: "open-in-github", Context: "git-status-commits"},
 
 		// Git commit preview context (commit preview in right pane)
 		{Key: "tab", Command: "switch-pane", Context: "git-commit-preview"},
@@ -74,6 +75,7 @@ func DefaultBindings() []Binding {
 		{Key: "y", Command: "yank-commit", Context: "git-commit-preview"},
 		{Key: "Y", Command: "yank-id", Context: "git-commit-preview"},
 		{Key: "\\", Command: "toggle-sidebar", Context: "git-commit-preview"},
+		{Key: "o", Command: "open-in-github", Context: "git-commit-preview"},
 
 		// Git Diff context
 		{Key: "esc", Command: "close-diff", Context: "git-diff"},
