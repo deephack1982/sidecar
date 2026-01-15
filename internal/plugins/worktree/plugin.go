@@ -77,8 +77,9 @@ type Plugin struct {
 	lastRefresh time.Time
 
 	// Diff state
-	diffContent string
-	diffRaw     string
+	diffContent  string
+	diffRaw      string
+	diffViewMode DiffViewMode // Unified or side-by-side
 
 	// Conflict detection state
 	conflicts []Conflict
@@ -213,6 +214,10 @@ func (p *Plugin) Init(ctx *plugin.Context) error {
 		ctx.Keymap.RegisterPluginBinding("\\", "toggle-sidebar", "worktree-preview")
 		ctx.Keymap.RegisterPluginBinding("[", "prev-tab", "worktree-preview")
 		ctx.Keymap.RegisterPluginBinding("]", "next-tab", "worktree-preview")
+		ctx.Keymap.RegisterPluginBinding("v", "toggle-diff-view", "worktree-preview")
+		ctx.Keymap.RegisterPluginBinding("ctrl+d", "page-down", "worktree-preview")
+		ctx.Keymap.RegisterPluginBinding("ctrl+u", "page-up", "worktree-preview")
+		ctx.Keymap.RegisterPluginBinding("0", "reset-scroll", "worktree-preview")
 
 		// Create modal context
 		ctx.Keymap.RegisterPluginBinding("esc", "cancel", "worktree-create")
@@ -851,11 +856,63 @@ func (p *Plugin) handleListKeys(msg tea.KeyMsg) tea.Cmd {
 	case "r":
 		return func() tea.Msg { return RefreshMsg{} }
 	case "v":
-		// Toggle between list and kanban view
-		if p.viewMode == ViewModeList {
-			p.viewMode = ViewModeKanban
-		} else if p.viewMode == ViewModeKanban {
-			p.viewMode = ViewModeList
+		// In sidebar: toggle between list and kanban view
+		// In preview pane on diff tab: toggle unified/side-by-side diff view
+		if p.activePane == PanePreview && p.previewTab == PreviewTabDiff {
+			if p.diffViewMode == DiffViewUnified {
+				p.diffViewMode = DiffViewSideBySide
+			} else {
+				p.diffViewMode = DiffViewUnified
+			}
+		} else if p.activePane == PaneSidebar {
+			if p.viewMode == ViewModeList {
+				p.viewMode = ViewModeKanban
+			} else if p.viewMode == ViewModeKanban {
+				p.viewMode = ViewModeList
+			}
+		}
+	case "ctrl+d":
+		// Page down in preview pane
+		if p.activePane == PanePreview {
+			pageSize := p.height / 2
+			if pageSize < 5 {
+				pageSize = 5
+			}
+			if p.previewTab == PreviewTabOutput {
+				// For output, offset is from bottom
+				if p.previewOffset > pageSize {
+					p.previewOffset -= pageSize
+				} else {
+					p.previewOffset = 0
+					p.autoScrollOutput = true
+				}
+			} else {
+				p.previewOffset += pageSize
+			}
+		}
+	case "ctrl+u":
+		// Page up in preview pane
+		if p.activePane == PanePreview {
+			pageSize := p.height / 2
+			if pageSize < 5 {
+				pageSize = 5
+			}
+			if p.previewTab == PreviewTabOutput {
+				// For output, offset is from bottom
+				p.autoScrollOutput = false
+				p.previewOffset += pageSize
+			} else {
+				if p.previewOffset > pageSize {
+					p.previewOffset -= pageSize
+				} else {
+					p.previewOffset = 0
+				}
+			}
+		}
+	case "0":
+		// Reset horizontal scroll
+		if p.activePane == PanePreview {
+			p.previewHorizOffset = 0
 		}
 
 	// Agent control keys
@@ -1577,6 +1634,14 @@ func (p *Plugin) Commands() []plugin.Command {
 				{ID: "toggle-sidebar", Name: "Sidebar", Description: "Toggle sidebar visibility", Context: "worktree-preview", Priority: 2},
 				{ID: "prev-tab", Name: "Tab←", Description: "Previous preview tab", Context: "worktree-preview", Priority: 3},
 				{ID: "next-tab", Name: "Tab→", Description: "Next preview tab", Context: "worktree-preview", Priority: 4},
+			}
+			// Add diff view toggle when on Diff tab
+			if p.previewTab == PreviewTabDiff {
+				diffViewName := "Split"
+				if p.diffViewMode == DiffViewSideBySide {
+					diffViewName = "Unified"
+				}
+				cmds = append(cmds, plugin.Command{ID: "toggle-diff-view", Name: diffViewName, Description: "Toggle unified/side-by-side diff", Context: "worktree-preview", Priority: 5})
 			}
 			// Also show agent commands in preview pane
 			wt := p.selectedWorktree()

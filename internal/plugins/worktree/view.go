@@ -7,6 +7,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/marcus/sidecar/internal/plugins/gitstatus"
 	"github.com/marcus/sidecar/internal/styles"
 	"github.com/marcus/sidecar/internal/ui"
 )
@@ -483,9 +484,9 @@ func (p *Plugin) renderOutputContent(width, height int) string {
 	return hint + "\n" + strings.Join(displayLines, "\n")
 }
 
-// renderDiffContent renders git diff.
+// renderDiffContent renders git diff using the shared diff renderer.
 func (p *Plugin) renderDiffContent(width, height int) string {
-	if p.diffContent == "" {
+	if p.diffRaw == "" {
 		wt := p.selectedWorktree()
 		if wt == nil {
 			return dimText("No worktree selected")
@@ -493,6 +494,32 @@ func (p *Plugin) renderDiffContent(width, height int) string {
 		return dimText("No changes")
 	}
 
+	// Parse the raw diff into structured format
+	parsed, err := gitstatus.ParseUnifiedDiff(p.diffRaw)
+	if err != nil || parsed == nil {
+		// Fallback to basic rendering
+		return p.renderDiffContentBasic(width, height)
+	}
+
+	// Create syntax highlighter if we have file info
+	var highlighter *gitstatus.SyntaxHighlighter
+	if parsed.NewFile != "" {
+		highlighter = gitstatus.NewSyntaxHighlighter(parsed.NewFile)
+	}
+
+	// Render based on view mode
+	var content string
+	if p.diffViewMode == DiffViewSideBySide {
+		content = gitstatus.RenderSideBySide(parsed, width, p.previewOffset, height, p.previewHorizOffset, highlighter)
+	} else {
+		content = gitstatus.RenderLineDiff(parsed, width, p.previewOffset, height, p.previewHorizOffset, highlighter)
+	}
+
+	return content
+}
+
+// renderDiffContentBasic renders git diff with basic highlighting (fallback).
+func (p *Plugin) renderDiffContentBasic(width, height int) string {
 	lines := splitLines(p.diffContent)
 
 	// Apply scroll offset
@@ -509,11 +536,9 @@ func (p *Plugin) renderDiffContent(width, height int) string {
 	}
 
 	// Diff highlighting with horizontal scroll support
-	// Pattern: style FIRST, then use ANSI-aware truncation for scrolling
 	var rendered []string
 	for _, line := range lines[start:end] {
 		line = expandTabs(line, tabStopWidth)
-		// Style the line FIRST (before any offset/truncation)
 		var styledLine string
 		switch {
 		case strings.HasPrefix(line, "+++") || strings.HasPrefix(line, "---"):
@@ -528,16 +553,12 @@ func (p *Plugin) renderDiffContent(width, height int) string {
 			styledLine = line
 		}
 
-		// Apply horizontal offset using ANSI-aware truncation
 		if p.previewHorizOffset > 0 {
 			styledLine = ansi.TruncateLeft(styledLine, p.previewHorizOffset, "")
 		}
-
-		// Truncate to width using ANSI-aware truncation
 		if lipgloss.Width(styledLine) > width {
 			styledLine = ansi.Truncate(styledLine, width, "")
 		}
-
 		rendered = append(rendered, styledLine)
 	}
 

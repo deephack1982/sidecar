@@ -37,6 +37,14 @@ const (
 	PreviewTabTask                     // TD task info
 )
 
+// DiffViewMode specifies the diff rendering mode.
+type DiffViewMode int
+
+const (
+	DiffViewUnified    DiffViewMode = iota // Line-by-line unified view
+	DiffViewSideBySide                     // Side-by-side split view
+)
+
 // WorktreeStatus represents the current state of a worktree.
 type WorktreeStatus int
 
