@@ -18,6 +18,7 @@ const (
 var sidecarGitignoreEntries = []string{
 	".sidecar-agent",
 	".sidecar-task",
+	".sidecar-pr",
 	".td-root",
 }
 
