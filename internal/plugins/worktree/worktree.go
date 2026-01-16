@@ -237,6 +237,65 @@ func getCurrentBranch(workdir string) (string, error) {
 	return strings.TrimSpace(string(output)), nil
 }
 
+// checkRemoteBranchExists checks if a remote branch exists for the given branch name.
+func checkRemoteBranchExists(workdir, branch string) bool {
+	cmd := exec.Command("git", "ls-remote", "--heads", "origin", branch)
+	cmd.Dir = workdir
+	output, err := cmd.Output()
+	if err != nil {
+		return false
+	}
+	return len(strings.TrimSpace(string(output))) > 0
+}
+
+// deleteBranch deletes a local branch, trying safe delete first then force.
+func deleteBranch(workdir, branch string) error {
+	// Try safe delete first
+	cmd := exec.Command("git", "branch", "-d", branch)
+	cmd.Dir = workdir
+	if err := cmd.Run(); err == nil {
+		return nil
+	}
+
+	// Try force delete
+	cmd = exec.Command("git", "branch", "-D", branch)
+	cmd.Dir = workdir
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("delete branch: %s: %w", strings.TrimSpace(string(output)), err)
+	}
+	return nil
+}
+
+// deleteRemoteBranchCmd deletes the remote branch from origin.
+func deleteRemoteBranchCmd(workdir, branch string) error {
+	cmd := exec.Command("git", "push", "origin", "--delete", branch)
+	cmd.Dir = workdir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		outputStr := string(output)
+		// Check if branch was already deleted (GitHub auto-delete)
+		if strings.Contains(outputStr, "remote ref does not exist") ||
+			strings.Contains(outputStr, "unable to delete") ||
+			strings.Contains(outputStr, "couldn't find remote ref") {
+			return nil // Not an error - branch already gone
+		}
+		return fmt.Errorf("delete remote branch: %s", strings.TrimSpace(outputStr))
+	}
+	return nil
+}
+
+// checkRemoteBranch returns a command to check if a remote branch exists.
+func (p *Plugin) checkRemoteBranch(wt *Worktree) tea.Cmd {
+	return func() tea.Msg {
+		exists := checkRemoteBranchExists(p.ctx.WorkDir, wt.Branch)
+		return RemoteCheckDoneMsg{
+			WorktreeName: wt.Name,
+			Branch:       wt.Branch,
+			Exists:       exists,
+		}
+	}
+}
+
 // loadBranches returns a command to fetch all local branches.
 func (p *Plugin) loadBranches() tea.Cmd {
 	return func() tea.Msg {

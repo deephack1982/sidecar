@@ -145,6 +145,18 @@ func (p *Plugin) Update(msg tea.Msg) (plugin.Plugin, tea.Cmd) {
 			cmds = append(cmds, p.loadSelectedDiff())
 		}
 
+	case RemoteCheckDoneMsg:
+		// Update delete modal with remote branch existence info
+		if p.viewMode == ViewModeConfirmDelete && p.deleteConfirmWorktree != nil &&
+			p.deleteConfirmWorktree.Name == msg.WorktreeName {
+			p.deleteHasRemote = msg.Exists
+			// Adjust focus if remote exists (remote checkbox inserts at index 1,
+			// so delete button shifts from 1 to 2)
+			if msg.Exists && p.deleteConfirmFocus == 1 {
+				p.deleteConfirmFocus = 2
+			}
+		}
+
 	case PushDoneMsg:
 		// Handle push result notification
 		if msg.Err == nil {
@@ -390,6 +402,17 @@ func (p *Plugin) Update(msg tea.Msg) (plugin.Plugin, tea.Cmd) {
 			cmds = append(cmds, p.checkPRMerged(p.mergeState.Worktree))
 		}
 
+	case DirectMergeDoneMsg:
+		if p.mergeState != nil && p.mergeState.Worktree.Name == msg.WorktreeName {
+			if msg.Err != nil {
+				p.mergeState.Error = msg.Err
+				p.mergeState.StepStatus[MergeStepDirectMerge] = "error"
+			} else {
+				// Direct merge succeeded, advance to confirmation
+				cmds = append(cmds, p.advanceMergeStep())
+			}
+		}
+
 	case CleanupDoneMsg:
 		if p.mergeState != nil && p.mergeState.Worktree.Name == msg.WorktreeName {
 			if p.mergeState.CleanupResults == nil {
@@ -426,6 +449,18 @@ func (p *Plugin) Update(msg tea.Msg) (plugin.Plugin, tea.Cmd) {
 			} else {
 				p.mergeState.CleanupResults.RemoteBranchDeleted = true
 			}
+			// Check if all cleanup tasks are done
+			cmds = append(cmds, p.checkCleanupComplete())
+		}
+
+	case PullAfterMergeMsg:
+		if p.mergeState != nil && p.mergeState.Worktree.Name == msg.WorktreeName {
+			if p.mergeState.CleanupResults == nil {
+				p.mergeState.CleanupResults = &CleanupResults{}
+			}
+			p.mergeState.CleanupResults.PullAttempted = true
+			p.mergeState.CleanupResults.PullSuccess = msg.Success
+			p.mergeState.CleanupResults.PullError = msg.Err
 			// Check if all cleanup tasks are done
 			cmds = append(cmds, p.checkCleanupComplete())
 		}

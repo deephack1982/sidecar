@@ -159,6 +159,16 @@ func (p *Plugin) handleMouseClick(action mouse.MouseAction) tea.Cmd {
 		p.viewMode = ViewModeList
 		p.agentChoiceWorktree = nil
 		p.agentChoiceButtonFocus = 0
+	case regionDeleteLocalBranchCheck:
+		// Click on local branch checkbox
+		p.deleteLocalBranchOpt = !p.deleteLocalBranchOpt
+		p.deleteConfirmFocus = 0
+	case regionDeleteRemoteBranchCheck:
+		// Click on remote branch checkbox (only if remote exists)
+		if p.deleteHasRemote {
+			p.deleteRemoteBranchOpt = !p.deleteRemoteBranchOpt
+			p.deleteConfirmFocus = 1
+		}
 	case regionDeleteConfirmDelete:
 		// Click delete button
 		return p.executeDelete()
@@ -259,7 +269,7 @@ func (p *Plugin) handleMouseClick(action mouse.MouseAction) tea.Cmd {
 			p.mergeState.DeleteAfterMerge = (idx == 0)
 		}
 	case regionMergeConfirmCheckbox:
-		// Click on confirmation checkbox
+		// Click on confirmation checkbox (0-2=cleanup, 3=pull)
 		if idx, ok := action.Region.Data.(int); ok && p.mergeState != nil &&
 			p.mergeState.Step == MergeStepPostMergeConfirmation {
 			switch idx {
@@ -269,22 +279,25 @@ func (p *Plugin) handleMouseClick(action mouse.MouseAction) tea.Cmd {
 				p.mergeState.DeleteLocalBranch = !p.mergeState.DeleteLocalBranch
 			case 2:
 				p.mergeState.DeleteRemoteBranch = !p.mergeState.DeleteRemoteBranch
+			case 3:
+				p.mergeState.PullAfterMerge = !p.mergeState.PullAfterMerge
 			}
 			p.mergeState.ConfirmationFocus = idx
 		}
 	case regionMergeConfirmButton:
-		// Click on Clean Up button
+		// Click on Clean Up button (focus index 4)
 		if p.mergeState != nil && p.mergeState.Step == MergeStepPostMergeConfirmation {
-			p.mergeState.ConfirmationFocus = 3
+			p.mergeState.ConfirmationFocus = 4
 			return p.advanceMergeStep()
 		}
 	case regionMergeSkipButton:
-		// Click on Skip All button
+		// Click on Skip All button (focus index 5)
 		if p.mergeState != nil && p.mergeState.Step == MergeStepPostMergeConfirmation {
 			p.mergeState.DeleteLocalWorktree = false
 			p.mergeState.DeleteLocalBranch = false
 			p.mergeState.DeleteRemoteBranch = false
-			p.mergeState.ConfirmationFocus = 4
+			p.mergeState.PullAfterMerge = false
+			p.mergeState.ConfirmationFocus = 5
 			return p.advanceMergeStep()
 		}
 	case regionPromptFilter:

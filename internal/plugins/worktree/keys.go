@@ -101,32 +101,67 @@ func (p *Plugin) executeAgentChoice() tea.Cmd {
 
 // handleConfirmDeleteKeys handles keys in delete confirmation modal.
 func (p *Plugin) handleConfirmDeleteKeys(msg tea.KeyMsg) tea.Cmd {
+	// Calculate max focus based on whether remote branch exists
+	// 0=local checkbox, 1=remote checkbox (if exists), 2 or 1=delete btn, 3 or 2=cancel btn
+	maxFocus := 2 // local checkbox + delete btn + cancel btn
+	if p.deleteHasRemote {
+		maxFocus = 3 // local checkbox + remote checkbox + delete btn + cancel btn
+	}
+
+	deleteBtnFocus := 1
+	cancelBtnFocus := 2
+	if p.deleteHasRemote {
+		deleteBtnFocus = 2
+		cancelBtnFocus = 3
+	}
+
 	switch msg.String() {
 	case "tab":
-		// Cycle focus: delete(0) -> cancel(1) -> delete(0)
-		p.deleteConfirmButtonFocus = (p.deleteConfirmButtonFocus + 1) % 2
+		p.deleteConfirmFocus = (p.deleteConfirmFocus + 1) % (maxFocus + 1)
 	case "shift+tab":
-		// Reverse cycle
-		p.deleteConfirmButtonFocus = (p.deleteConfirmButtonFocus + 1) % 2
+		p.deleteConfirmFocus = (p.deleteConfirmFocus + maxFocus) % (maxFocus + 1)
+	case "j", "down":
+		if p.deleteConfirmFocus < maxFocus {
+			p.deleteConfirmFocus++
+		}
+	case "k", "up":
+		if p.deleteConfirmFocus > 0 {
+			p.deleteConfirmFocus--
+		}
+	case " ":
+		// Space toggles checkboxes
+		if p.deleteConfirmFocus == 0 {
+			p.deleteLocalBranchOpt = !p.deleteLocalBranchOpt
+		} else if p.deleteHasRemote && p.deleteConfirmFocus == 1 {
+			p.deleteRemoteBranchOpt = !p.deleteRemoteBranchOpt
+		}
 	case "enter":
-		if p.deleteConfirmButtonFocus == 1 {
-			// Cancel button focused
+		if p.deleteConfirmFocus == cancelBtnFocus {
 			return p.cancelDelete()
 		}
-		// Delete button focused - execute delete
-		return p.executeDelete()
+		if p.deleteConfirmFocus == deleteBtnFocus {
+			return p.executeDelete()
+		}
+		// Space-like behavior on checkboxes with Enter
+		if p.deleteConfirmFocus == 0 {
+			p.deleteLocalBranchOpt = !p.deleteLocalBranchOpt
+		} else if p.deleteHasRemote && p.deleteConfirmFocus == 1 {
+			p.deleteRemoteBranchOpt = !p.deleteRemoteBranchOpt
+		}
 	case "D":
 		// Power user shortcut - immediate confirm
 		return p.executeDelete()
 	case "esc", "q":
 		return p.cancelDelete()
 	case "h", "left":
-		if p.deleteConfirmButtonFocus > 0 {
-			p.deleteConfirmButtonFocus--
+		// Navigate between buttons when on button row
+		if p.deleteConfirmFocus == cancelBtnFocus {
+			p.deleteConfirmFocus = deleteBtnFocus
 		}
 	case "l", "right":
-		if p.deleteConfirmButtonFocus < 1 {
-			p.deleteConfirmButtonFocus++
+		// Navigate between buttons when on button row
+		if p.deleteConfirmFocus == deleteBtnFocus {
+			p.deleteConfirmFocus = cancelBtnFocus
 		}
 	}
 	return nil
@@ -142,12 +177,19 @@ func (p *Plugin) executeDelete() tea.Cmd {
 
 	name := wt.Name
 	path := wt.Path
+	branch := wt.Branch
+	deleteLocal := p.deleteLocalBranchOpt
+	deleteRemote := p.deleteRemoteBranchOpt && p.deleteHasRemote
+	workDir := p.ctx.WorkDir
 
 	// Clear modal state
 	p.viewMode = ViewModeList
 	p.deleteConfirmWorktree = nil
-	p.deleteConfirmButtonFocus = 0
 	p.deleteConfirmButtonHover = 0
+	p.deleteLocalBranchOpt = false
+	p.deleteRemoteBranchOpt = false
+	p.deleteHasRemote = false
+	p.deleteConfirmFocus = 0
 
 	// Clear preview pane content
 	p.diffContent = ""
@@ -156,8 +198,28 @@ func (p *Plugin) executeDelete() tea.Cmd {
 	p.cachedTask = nil
 
 	return func() tea.Msg {
+		// Delete the worktree first
 		err := doDeleteWorktree(path)
-		return DeleteDoneMsg{Name: name, Err: err}
+		if err != nil {
+			return DeleteDoneMsg{Name: name, Err: err}
+		}
+
+		// Delete local branch if requested
+		if deleteLocal {
+			if branchErr := deleteBranch(workDir, branch); branchErr != nil {
+				// Log but don't fail - worktree was deleted successfully
+				// Error will be visible if branch deletion fails
+			}
+		}
+
+		// Delete remote branch if requested
+		if deleteRemote {
+			if remoteErr := deleteRemoteBranchCmd(workDir, branch); remoteErr != nil {
+				// Log but don't fail - worktree was deleted successfully
+			}
+		}
+
+		return DeleteDoneMsg{Name: name, Err: nil}
 	}
 }
 
@@ -165,8 +227,11 @@ func (p *Plugin) executeDelete() tea.Cmd {
 func (p *Plugin) cancelDelete() tea.Cmd {
 	p.viewMode = ViewModeList
 	p.deleteConfirmWorktree = nil
-	p.deleteConfirmButtonFocus = 0
 	p.deleteConfirmButtonHover = 0
+	p.deleteLocalBranchOpt = false
+	p.deleteRemoteBranchOpt = false
+	p.deleteHasRemote = false
+	p.deleteConfirmFocus = 0
 	return nil
 }
 
@@ -255,9 +320,13 @@ func (p *Plugin) handleListKeys(msg tea.KeyMsg) tea.Cmd {
 		}
 		p.viewMode = ViewModeConfirmDelete
 		p.deleteConfirmWorktree = wt
-		p.deleteConfirmButtonFocus = 0 // Focus delete button
 		p.deleteConfirmButtonHover = 0
-		return nil
+		p.deleteLocalBranchOpt = false  // Default: don't delete branches
+		p.deleteRemoteBranchOpt = false
+		p.deleteHasRemote = false
+		p.deleteConfirmFocus = 1 // Focus delete button (index 1 when no remote)
+		// Check for remote branch existence asynchronously
+		return p.checkRemoteBranch(wt)
 	case "p":
 		return p.pushSelected()
 	case "l", "right":
@@ -742,18 +811,22 @@ func (p *Plugin) handleMergeKeys(msg tea.KeyMsg) tea.Cmd {
 		// Continue to next step based on current step
 		switch p.mergeState.Step {
 		case MergeStepReviewDiff:
-			// User reviewed diff, proceed to push
+			// User reviewed diff, proceed to merge method selection
+			return p.advanceMergeStep()
+		case MergeStepMergeMethod:
+			// User selected merge method, proceed
 			return p.advanceMergeStep()
 		case MergeStepWaitingMerge:
 			// Manual check for merge status
 			return p.checkPRMerged(p.mergeState.Worktree)
 		case MergeStepPostMergeConfirmation:
 			// User confirmed cleanup options
-			if p.mergeState.ConfirmationFocus == 4 {
+			if p.mergeState.ConfirmationFocus == 5 {
 				// Skip All button - uncheck everything
 				p.mergeState.DeleteLocalWorktree = false
 				p.mergeState.DeleteLocalBranch = false
 				p.mergeState.DeleteRemoteBranch = false
+				p.mergeState.PullAfterMerge = false
 			}
 			return p.advanceMergeStep()
 		case MergeStepDone:
@@ -762,7 +835,10 @@ func (p *Plugin) handleMergeKeys(msg tea.KeyMsg) tea.Cmd {
 		}
 
 	case "up", "k":
-		if p.mergeState.Step == MergeStepWaitingMerge {
+		if p.mergeState.Step == MergeStepMergeMethod {
+			// Select PR workflow (option 0)
+			p.mergeState.MergeMethodOption = 0
+		} else if p.mergeState.Step == MergeStepWaitingMerge {
 			// Select "Delete worktree after merge"
 			p.mergeState.DeleteAfterMerge = true
 		} else if p.mergeState.Step == MergeStepPostMergeConfirmation {
@@ -773,12 +849,15 @@ func (p *Plugin) handleMergeKeys(msg tea.KeyMsg) tea.Cmd {
 		}
 
 	case "down", "j":
-		if p.mergeState.Step == MergeStepWaitingMerge {
+		if p.mergeState.Step == MergeStepMergeMethod {
+			// Select direct merge (option 1)
+			p.mergeState.MergeMethodOption = 1
+		} else if p.mergeState.Step == MergeStepWaitingMerge {
 			// Select "Keep worktree"
 			p.mergeState.DeleteAfterMerge = false
 		} else if p.mergeState.Step == MergeStepPostMergeConfirmation {
-			// Navigate checkboxes/buttons
-			if p.mergeState.ConfirmationFocus < 4 {
+			// Navigate checkboxes/buttons (0-3=checkboxes, 4=confirm, 5=skip)
+			if p.mergeState.ConfirmationFocus < 5 {
 				p.mergeState.ConfirmationFocus++
 			}
 		}
@@ -793,19 +872,21 @@ func (p *Plugin) handleMergeKeys(msg tea.KeyMsg) tea.Cmd {
 				p.mergeState.DeleteLocalBranch = !p.mergeState.DeleteLocalBranch
 			case 2:
 				p.mergeState.DeleteRemoteBranch = !p.mergeState.DeleteRemoteBranch
+			case 3:
+				p.mergeState.PullAfterMerge = !p.mergeState.PullAfterMerge
 			}
 		}
 
 	case "tab":
-		// Tab cycles focus in confirmation step
+		// Tab cycles focus in confirmation step (0-3=checkboxes, 4=confirm, 5=skip)
 		if p.mergeState.Step == MergeStepPostMergeConfirmation {
-			p.mergeState.ConfirmationFocus = (p.mergeState.ConfirmationFocus + 1) % 5
+			p.mergeState.ConfirmationFocus = (p.mergeState.ConfirmationFocus + 1) % 6
 		}
 
 	case "shift+tab":
 		// Shift+Tab reverse cycles focus
 		if p.mergeState.Step == MergeStepPostMergeConfirmation {
-			p.mergeState.ConfirmationFocus = (p.mergeState.ConfirmationFocus + 4) % 5
+			p.mergeState.ConfirmationFocus = (p.mergeState.ConfirmationFocus + 5) % 6
 		}
 
 	case "s":

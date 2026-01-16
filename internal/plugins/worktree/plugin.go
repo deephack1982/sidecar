@@ -35,8 +35,10 @@ const (
 	regionAgentChoiceOption    = "agent-choice-option"
 	regionAgentChoiceConfirm   = "agent-choice-confirm"
 	regionAgentChoiceCancel    = "agent-choice-cancel"
-	regionDeleteConfirmDelete  = "delete-confirm-delete"
-	regionDeleteConfirmCancel  = "delete-confirm-cancel"
+	regionDeleteConfirmDelete      = "delete-confirm-delete"
+	regionDeleteConfirmCancel      = "delete-confirm-cancel"
+	regionDeleteLocalBranchCheck   = "delete-local-branch-check"
+	regionDeleteRemoteBranchCheck  = "delete-remote-branch-check"
 
 	// Kanban view regions
 	regionKanbanCard   = "kanban-card"
@@ -180,8 +182,11 @@ type Plugin struct {
 
 	// Delete confirmation modal state
 	deleteConfirmWorktree    *Worktree // Worktree pending deletion
-	deleteConfirmButtonFocus int       // 0=delete, 1=cancel
-	deleteConfirmButtonHover int       // 0=none, 1=delete, 2=cancel
+	deleteConfirmButtonHover int       // 0=none, 1=delete, 2=cancel (for mouse hover)
+	deleteLocalBranchOpt     bool      // Checkbox: delete local branch
+	deleteRemoteBranchOpt    bool      // Checkbox: delete remote branch
+	deleteHasRemote          bool      // Whether remote branch exists
+	deleteConfirmFocus       int       // 0=local checkbox, 1=remote checkbox (if exists), then delete/cancel btns
 
 	// Initial reconnection tracking
 	initialReconnectDone bool

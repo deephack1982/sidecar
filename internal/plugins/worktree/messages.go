@@ -95,6 +95,13 @@ type DeleteDoneMsg struct {
 	Err  error
 }
 
+// RemoteCheckDoneMsg signals remote branch existence check completed.
+type RemoteCheckDoneMsg struct {
+	WorktreeName string
+	Branch       string
+	Exists       bool
+}
+
 // PushMsg requests pushing a worktree branch.
 type PushMsg struct {
 	WorktreeName string
