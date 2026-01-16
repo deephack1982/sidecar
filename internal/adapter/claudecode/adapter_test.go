@@ -581,15 +581,16 @@ func TestDiscoverRelatedProjectDirs(t *testing.T) {
 	a := &Adapter{projectsDir: tmpDir}
 
 	// Create test directories
-	// Main repo: /Users/test/code/myrepo
-	// Feature worktree: /Users/test/code/myrepo-feature
-	// Unrelated: /Users/test/other
+	// Claude Code encoding: /Users/test/code/myrepo -> -Users-test-code-myrepo
+	// KNOWN LIMITATION: Decoding is lossy - hyphens in original paths become slashes.
+	// E.g., worktree at /Users/test/code/myrepo-feature encodes to -Users-test-code-myrepo-feature
+	// but decodes to /Users/test/code/myrepo/feature (incorrect, but acceptable for discovery purposes)
 	dirs := []string{
-		"-Users-test-code-myrepo",
-		"-Users-test-code-myrepo-feature",
-		"-Users-test-code-myrepo-bugfix",
-		"-Users-test-other",
-		"-Users-test-code-myrepo2", // Different repo (myrepo2, not myrepo)
+		"-Users-test-code-myrepo",         // main repo
+		"-Users-test-code-myrepo-feature", // worktree (decodes with slash, not hyphen)
+		"-Users-test-code-myrepo-bugfix",  // worktree (decodes with slash, not hyphen)
+		"-Users-test-other",               // unrelated project
+		"-Users-test-code-myrepo2",        // different repo (myrepo2, not myrepo)
 	}
 	for _, d := range dirs {
 		if err := os.MkdirAll(tmpDir+"/"+d, 0755); err != nil {
@@ -605,7 +606,8 @@ func TestDiscoverRelatedProjectDirs(t *testing.T) {
 		{
 			name:     "finds related paths",
 			mainPath: "/Users/test/code/myrepo",
-			want:     []string{"/Users/test/code/myrepo", "/Users/test/code/myrepo/feature", "/Users/test/code/myrepo/bugfix"},
+			// Note: decoded paths have slashes where original had hyphens (known limitation)
+			want: []string{"/Users/test/code/myrepo", "/Users/test/code/myrepo/feature", "/Users/test/code/myrepo/bugfix"},
 		},
 		{
 			name:     "empty for invalid main path",
