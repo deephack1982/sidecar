@@ -2,6 +2,26 @@
 
 All notable changes to sidecar are documented here.
 
+## [v0.19.0] - 2026-01-16
+
+### Features
+- **Worktree merge improvements**: Gracefully handle existing MRs, mouse support for merge modal
+- **Worktree conversation integration**: Better worktree-conversation linking
+- **Website**: TUI-themed homepage with interactive demo, agents section
+- **Docusaurus documentation site**: Added Docusaurus 3.9 documentation site
+
+### Bug Fixes
+- Fixed race condition in cleanup completion
+- Added branch deletion warnings
+- Fixed worktree click offset
+- Fixed worktree create modal mouse support
+
+### Performance
+- Worktree adaptive polling and optimized tmux capture
+
+### Improvements
+- Split large files for better maintainability
+
 ## [v0.18.0] - 2026-01-15
 
 ### Features
