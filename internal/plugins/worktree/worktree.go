@@ -583,9 +583,20 @@ func SanitizeBranchName(name string) string {
 	// Remove trailing .lock
 	result = strings.TrimSuffix(result, ".lock")
 
-	// Remove trailing dots and slashes
-	for len(result) > 0 && (result[len(result)-1] == '.' || result[len(result)-1] == '/') {
-		result = result[:len(result)-1]
+	// Remove trailing dots, slashes, and dashes
+	for len(result) > 0 {
+		last := result[len(result)-1]
+		if last == '.' || last == '/' || last == '-' {
+			result = result[:len(result)-1]
+		} else {
+			break
+		}
+	}
+
+	// Final check: remove .lock suffix if exposed by previous cleanup steps
+	// (e.g., "foo.lock-" -> "foo.lock" after dash trim -> "foo")
+	for strings.HasSuffix(result, ".lock") {
+		result = strings.TrimSuffix(result, ".lock")
 	}
 
 	// Handle special case of "@"

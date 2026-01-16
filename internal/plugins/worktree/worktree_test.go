@@ -57,9 +57,15 @@ func TestSanitizeBranchName(t *testing.T) {
 		{"removes leading dot", ".feature", "feature"},
 		{"removes trailing .lock", "feature.lock", "feature"},
 		{"removes trailing dot", "feature.", "feature"},
+		{"removes trailing dash", "feature-", "feature"},
 		{"lowercase", "MyFeature", "myfeature"},
 		{"already clean", "feature-branch", "feature-branch"},
 		{"complex", "My Feature~1^2", "my-feature12"},
+		// Regression tests: .lock suffix exposed after trailing character cleanup
+		{"lock-with-trailing-dash", "foo.lock-", "foo"},
+		{"lock-with-trailing-dashes", "bar.lock--", "bar"},
+		{"lock-with-trailing-slash", "branch.lock/", "branch"},
+		{"lock-trailing-dash-multiple", "test.lock.lock-", "test"},
 	}
 
 	for _, tt := range tests {
