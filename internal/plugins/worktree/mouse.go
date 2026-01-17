@@ -377,6 +377,10 @@ func (p *Plugin) handleMouseClick(action mouse.MouseAction) tea.Cmd {
 
 // handleMouseDoubleClick handles double-click events.
 func (p *Plugin) handleMouseDoubleClick(action mouse.MouseAction) tea.Cmd {
+	// Ignore double-clicks when a modal is open
+	if p.viewMode != ViewModeList && p.viewMode != ViewModeKanban {
+		return nil
+	}
 	if action.Region == nil {
 		return nil
 	}

@@ -151,7 +151,7 @@ func (p *Plugin) renderSidebarContent(width, height int) string {
 
 	// Header with [New] button
 	titleText := "Worktrees"
-	buttonText := "[New]"
+	buttonText := "New"
 	buttonStyle := styles.Button
 	if p.hoverNewButton {
 		buttonStyle = styles.ButtonHover

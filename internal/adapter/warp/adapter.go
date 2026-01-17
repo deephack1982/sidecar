@@ -53,7 +53,7 @@ func (a *Adapter) ID() string { return adapterID }
 func (a *Adapter) Name() string { return adapterName }
 
 // Icon returns the adapter icon for badge display.
-func (a *Adapter) Icon() string { return "⚡" }
+func (a *Adapter) Icon() string { return "»" }
 
 // Capabilities returns the supported features.
 func (a *Adapter) Capabilities() adapter.CapabilitySet {
