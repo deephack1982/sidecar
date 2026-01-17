@@ -3,6 +3,7 @@ package worktree
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -449,6 +450,68 @@ func (p *Plugin) openCreateModal() tea.Cmd {
 	p.branchFiltered = nil
 	p.branchIdx = 0
 	return tea.Batch(p.loadOpenTasks(), p.loadBranches())
+}
+
+// openCreateModalWithTask opens the create modal pre-filled with task data.
+// Called from td-monitor plugin when user presses send-to-worktree hotkey.
+func (p *Plugin) openCreateModalWithTask(taskID, taskTitle string) tea.Cmd {
+	p.viewMode = ViewModeCreate
+
+	// Initialize name input with derived branch name
+	p.createNameInput = textinput.New()
+	p.createNameInput.Placeholder = "feature-name"
+	p.createNameInput.Focus()
+	p.createNameInput.CharLimit = 100
+
+	// Pre-fill name from task
+	suggestedName := p.deriveBranchName(taskID, taskTitle)
+	p.createNameInput.SetValue(suggestedName)
+	p.branchNameValid, p.branchNameErrors, p.branchNameSanitized = ValidateBranchName(suggestedName)
+
+	// Initialize base branch input
+	p.createBaseBranchInput = textinput.New()
+	p.createBaseBranchInput.Placeholder = "main"
+	p.createBaseBranchInput.CharLimit = 100
+
+	// Pre-fill task link
+	p.createTaskID = taskID
+	p.createTaskTitle = taskTitle
+
+	// Initialize task search input
+	p.taskSearchInput = textinput.New()
+	p.taskSearchInput.Placeholder = "Search tasks..."
+	p.taskSearchInput.CharLimit = 100
+
+	// Standard defaults
+	p.createAgentType = AgentClaude
+	p.createSkipPermissions = false
+	p.createFocus = 0
+	p.taskSearchLoading = false // Don't load tasks since one is pre-selected
+
+	// Load prompts from global and project config
+	home, _ := os.UserHomeDir()
+	configDir := filepath.Join(home, ".config", "sidecar")
+	p.createPrompts = LoadPrompts(configDir, p.ctx.WorkDir)
+	p.createPromptIdx = -1
+	p.promptPicker = nil
+	p.branchAll = nil
+	p.branchFiltered = nil
+	p.branchIdx = 0
+
+	return p.loadBranches()
+}
+
+// deriveBranchName creates a git-safe branch name from task ID and title.
+// Format: "<task-id>-<sanitized-title>" e.g., "td-abc123-add-user-auth"
+func (p *Plugin) deriveBranchName(taskID, title string) string {
+	sanitized := SanitizeBranchName(title)
+	if len(sanitized) > 40 {
+		sanitized = strings.TrimSuffix(sanitized[:40], "-")
+	}
+	if sanitized == "" {
+		return taskID
+	}
+	return taskID + "-" + sanitized
 }
 
 // getSelectedPrompt returns the currently selected prompt, or nil if none.

@@ -9,6 +9,7 @@ import (
 	"github.com/marcus/td/pkg/monitor"
 	"github.com/marcus/sidecar/internal/app"
 	"github.com/marcus/sidecar/internal/plugin"
+	"github.com/marcus/sidecar/internal/plugins/worktree"
 	"github.com/marcus/sidecar/internal/styles"
 )
 
@@ -133,6 +134,19 @@ func (p *Plugin) Update(msg tea.Msg) (plugin.Plugin, tea.Cmd) {
 	// Refresh data when plugin becomes focused
 	if _, ok := msg.(app.PluginFocusedMsg); ok {
 		return p, p.model.Init()
+	}
+
+	// Intercept TD's SendTaskToWorktree message and route to worktree plugin
+	if sendMsg, ok := msg.(monitor.SendTaskToWorktreeMsg); ok {
+		return p, tea.Batch(
+			app.FocusPlugin("worktree-manager"),
+			func() tea.Msg {
+				return worktree.OpenCreateModalWithTaskMsg{
+					TaskID:    sendMsg.TaskID,
+					TaskTitle: sendMsg.TaskTitle,
+				}
+			},
+		)
 	}
 
 	// Delegate to monitor

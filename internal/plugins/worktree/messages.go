@@ -175,3 +175,10 @@ type CommitStatusLoadedMsg struct {
 	Commits      []CommitStatusInfo
 	Err          error
 }
+
+// OpenCreateModalWithTaskMsg opens create modal pre-filled with task data.
+// Sent from td-monitor plugin when user presses send-to-worktree hotkey.
+type OpenCreateModalWithTaskMsg struct {
+	TaskID    string
+	TaskTitle string
+}

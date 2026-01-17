@@ -512,6 +512,9 @@ func (p *Plugin) Update(msg tea.Msg) (plugin.Plugin, tea.Cmd) {
 	case reconnectedAgentsMsg:
 		return p, tea.Batch(msg.Cmds...)
 
+	case OpenCreateModalWithTaskMsg:
+		return p, p.openCreateModalWithTask(msg.TaskID, msg.TaskTitle)
+
 	case tea.KeyMsg:
 		cmd := p.handleKeyPress(msg)
 		if cmd != nil {
