@@ -71,10 +71,40 @@ Repeat steps 2-3 for additional screenshots, then:
 For AI agents, run `tmux attach -t sidecar-screenshot` in **interact mode** to navigate. The workflow:
 
 1. `./scripts/tmux-screenshot.sh start`
-2. `tmux attach -t sidecar-screenshot` → Press a screen number (1-5) to navigate → Ctrl+A D to detach
+2. `tmux attach -t sidecar-screenshot` (in interact mode) → navigate to screen using number keys → interact with content → `Ctrl+A D` to detach
 3. `./scripts/tmux-screenshot.sh capture sidecar-{plugin}`
 4. Repeat 2-3 for each plugin
 5. `./scripts/tmux-screenshot.sh stop`
+
+### Important: Tmux Setup for Agent Interaction
+
+Before you can interact with sidecar via tmux, you must configure tmux to allow direct key input:
+
+1. **Create or update `~/.tmux.conf`** with these settings:
+   ```
+   set -g mouse on
+   set -g mode-keys vi
+   unbind C-b
+   set -g prefix C-a
+   bind C-a send-prefix
+   ```
+   The critical settings are:
+   - `set -g prefix C-a` - Sets the tmux prefix to Ctrl+A (used to detach with Ctrl+A D)
+   - `set -g mode-keys vi` - Enables vi key bindings (j/k for navigation, etc.)
+
+2. **Reload the config or restart tmux:**
+   ```bash
+   tmux source-file ~/.tmux.conf
+   # or
+   tmux kill-server  # kills all sessions
+   ```
+   After restarting tmux, the session will be ready for agent interaction.
+
+3. **In interact mode:**
+   - Press number keys to navigate screens (1-5)
+   - Use `j/k` or arrow keys to scroll through content
+   - Press `Enter` or `Space` to select/preview items
+   - Press `Ctrl+A D` to detach (not `Ctrl+B D`)
 
 **Screen navigation keys:**
 - **1** = TD (task management)
@@ -85,13 +115,19 @@ For AI agents, run `tmux attach -t sidecar-screenshot` in **interact mode** to n
 
 **Within a screen:**
 - **j/k** or arrow keys = navigate items
-- **Enter/Space** = interact with selected item
+- **Enter/Space** = interact with selected item (select commit, preview file, etc.)
+- **Ctrl+A D** = detach from tmux session
 
-**Important for agents:** The tmux prefix is **Ctrl+A** (not Ctrl+B). Always use **Ctrl+A D** to detach from the tmux session.
+**Important for agents:** Tmux must be configured with `set -g prefix C-a` (see "Tmux Setup for Agent Interaction" above). Always use **Ctrl+A D** to detach from the tmux session.
 
 ## Why Interactive?
 
-`tmux send-keys` doesn't reliably trigger sidecar's keybindings. Attaching and pressing keys directly always works.
+`tmux send-keys` doesn't reliably trigger sidecar's keybindings. Attaching and pressing keys directly in interact mode always works. This allows you to:
+- Navigate to specific screens
+- Select commits, files, or other items to display interesting content
+- Capture the full interactive state of sidecar
+
+The interact mode provides a live PTY interface where you can press keys in real-time, making it ideal for getting the UI into the exact state you want before capturing.
 
 ## Viewing Captures
 
