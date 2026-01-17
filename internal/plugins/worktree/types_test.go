@@ -122,6 +122,7 @@ func TestWorktreeStatusIcon(t *testing.T) {
 	}{
 		{StatusPaused, "⏸"},
 		{StatusActive, "●"},
+		{StatusThinking, "◐"},
 		{StatusWaiting, "💬"},
 		{StatusDone, "✓"},
 		{StatusError, "✗"},
@@ -143,6 +144,7 @@ func TestWorktreeStatusString(t *testing.T) {
 	}{
 		{StatusPaused, "paused"},
 		{StatusActive, "active"},
+		{StatusThinking, "thinking"},
 		{StatusWaiting, "waiting"},
 		{StatusDone, "done"},
 		{StatusError, "error"},
