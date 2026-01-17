@@ -475,19 +475,29 @@ func (a *Adapter) pruneSessionMetaCache(seenPaths map[string]struct{}) {
 }
 
 func (a *Adapter) enforceSessionMetaCacheLimitLocked() {
-	for len(a.metaCache) > metaCacheMaxEntries {
-		var oldestPath string
-		var oldestAccess time.Time
-		for path, entry := range a.metaCache {
-			if oldestPath == "" || entry.lastAccess.Before(oldestAccess) {
-				oldestPath = path
-				oldestAccess = entry.lastAccess
-			}
-		}
-		if oldestPath == "" {
-			return
-		}
-		delete(a.metaCache, oldestPath)
+	excess := len(a.metaCache) - metaCacheMaxEntries
+	if excess <= 0 {
+		return
+	}
+
+	// Collect entries for sorting
+	type pathAccess struct {
+		path       string
+		lastAccess time.Time
+	}
+	entries := make([]pathAccess, 0, len(a.metaCache))
+	for path, entry := range a.metaCache {
+		entries = append(entries, pathAccess{path, entry.lastAccess})
+	}
+
+	// Sort by lastAccess (oldest first)
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].lastAccess.Before(entries[j].lastAccess)
+	})
+
+	// Delete oldest entries
+	for i := 0; i < excess; i++ {
+		delete(a.metaCache, entries[i].path)
 	}
 }
 
