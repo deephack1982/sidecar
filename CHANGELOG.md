@@ -2,6 +2,27 @@
 
 All notable changes to sidecar are documented here.
 
+## [v0.22.0] - 2026-01-17
+
+### Features
+- **Yank keyboard shortcuts**: Added y/Y keys for copying content in conversations plugin
+- **Send-to-worktree integration**: Launch agents directly from td monitor to worktrees
+
+### Bug Fixes
+- Fixed worktree session lookup for nested directories and sanitized names
+- Fixed send-to-worktree with lazy loaded npm environments
+- Fixed Unicode truncation and refactored modal initialization
+- Fixed memory leak and CPU performance in worktree output pane
+- Fixed off-by-one mouse hit regions in worktree modals
+- Fixed commit status not showing for worktrees with unset BaseBranch
+- Fixed O(n²) cache eviction in session metadata cache
+- Fixed detectDefaultBranch() not being called due to caller defaults
+
+### Changes
+- Removed YAML config support (JSON only)
+- Extracted resolveBaseBranch() helper to deduplicate default branch detection
+- Replaced hardcoded 'main' defaults with detectDefaultBranch()
+
 ## [v0.21.0] - 2026-01-17
 
 ### Bug Fixes
