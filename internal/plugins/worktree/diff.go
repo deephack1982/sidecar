@@ -171,6 +171,11 @@ func (p *Plugin) loadCommitStatus(wt *Worktree) tea.Cmd {
 
 // getWorktreeCommits returns commits unique to this branch vs base branch with status.
 func getWorktreeCommits(workdir, baseBranch string) ([]CommitStatusInfo, error) {
+	// If baseBranch is empty or doesn't exist, detect the default branch
+	if baseBranch == "" {
+		baseBranch = detectDefaultBranch(workdir)
+	}
+
 	// Get commits in HEAD that aren't in base branch
 	// Format: short hash + subject
 	cmd := exec.Command("git", "log", baseBranch+"..HEAD", "--oneline", "--format=%h|%s")
@@ -182,8 +187,22 @@ func getWorktreeCommits(workdir, baseBranch string) ([]CommitStatusInfo, error) 
 		cmd.Dir = workdir
 		output, err = cmd.Output()
 		if err != nil {
-			// No commits or error - return empty list
-			return []CommitStatusInfo{}, nil
+			// Try common fallbacks: master, then origin/master
+			for _, fallback := range []string{"master", "origin/master", "main", "origin/main"} {
+				if fallback == baseBranch || fallback == "origin/"+baseBranch {
+					continue // Already tried
+				}
+				cmd = exec.Command("git", "log", fallback+"..HEAD", "--oneline", "--format=%h|%s")
+				cmd.Dir = workdir
+				output, err = cmd.Output()
+				if err == nil {
+					break
+				}
+			}
+			if err != nil {
+				// No commits or error - return empty list
+				return []CommitStatusInfo{}, nil
+			}
 		}
 	}
 
@@ -226,6 +245,34 @@ func getWorktreeCommits(workdir, baseBranch string) ([]CommitStatusInfo, error) 
 	}
 
 	return commits, nil
+}
+
+// detectDefaultBranch detects the default branch for a repository.
+// Checks remote HEAD first, then falls back to common names.
+func detectDefaultBranch(workdir string) string {
+	// Try to get the remote HEAD (most reliable)
+	cmd := exec.Command("git", "symbolic-ref", "refs/remotes/origin/HEAD")
+	cmd.Dir = workdir
+	output, err := cmd.Output()
+	if err == nil {
+		// Output is like "refs/remotes/origin/main"
+		ref := strings.TrimSpace(string(output))
+		if strings.HasPrefix(ref, "refs/remotes/origin/") {
+			return strings.TrimPrefix(ref, "refs/remotes/origin/")
+		}
+	}
+
+	// Fallback: check which common branch exists
+	for _, branch := range []string{"main", "master"} {
+		cmd := exec.Command("git", "rev-parse", "--verify", branch)
+		cmd.Dir = workdir
+		if err := cmd.Run(); err == nil {
+			return branch
+		}
+	}
+
+	// Last resort default
+	return "main"
 }
 
 // getRemoteTrackingBranch returns the remote tracking branch for HEAD.
