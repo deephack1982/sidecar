@@ -54,7 +54,10 @@ func NewPromptPicker(prompts []Prompt, width, height int) *PromptPicker {
 func (pp *PromptPicker) Update(msg tea.Msg) (*PromptPicker, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		switch msg.String() {
+		key := msg.String()
+
+		// Universal keys - always handled regardless of focus
+		switch key {
 		case "esc", "q":
 			return pp, func() tea.Msg { return PromptCancelledMsg{} }
 
@@ -79,15 +82,38 @@ func (pp *PromptPicker) Update(msg tea.Msg) (*PromptPicker, tea.Cmd) {
 			}
 			return pp, nil
 
-		case "up", "k":
-			// Only navigate items when list is focused (or always allow for convenience)
+		case "up":
+			// Arrow keys always navigate
 			if pp.selectedIdx > -1 {
 				pp.selectedIdx--
 			}
 			return pp, nil
 
-		case "down", "j":
-			// Only navigate items when list is focused (or always allow for convenience)
+		case "down":
+			// Arrow keys always navigate
+			if pp.selectedIdx < len(pp.filtered)-1 {
+				pp.selectedIdx++
+			}
+			return pp, nil
+		}
+
+		// When filter is focused, send most keys to text input
+		if pp.filterFocused {
+			var cmd tea.Cmd
+			pp.filterInput, cmd = pp.filterInput.Update(msg)
+			pp.applyFilter()
+			return pp, cmd
+		}
+
+		// Navigation keys - only when filter NOT focused
+		switch key {
+		case "k":
+			if pp.selectedIdx > -1 {
+				pp.selectedIdx--
+			}
+			return pp, nil
+
+		case "j":
 			if pp.selectedIdx < len(pp.filtered)-1 {
 				pp.selectedIdx++
 			}
@@ -102,15 +128,6 @@ func (pp *PromptPicker) Update(msg tea.Msg) (*PromptPicker, tea.Cmd) {
 				pp.selectedIdx = len(pp.filtered) - 1
 			}
 			return pp, nil
-
-		default:
-			// Handle filter input only when filter is focused
-			if pp.filterFocused {
-				var cmd tea.Cmd
-				pp.filterInput, cmd = pp.filterInput.Update(msg)
-				pp.applyFilter()
-				return pp, cmd
-			}
 		}
 	}
 	return pp, nil
@@ -168,9 +185,9 @@ func (pp *PromptPicker) View() string {
 		sb.WriteString("No prompts configured.\n\n")
 		sb.WriteString(dimText("Add prompts to one of these config files:"))
 		sb.WriteString("\n")
-		sb.WriteString(dimText("  Global:  ~/.config/sidecar/config.yaml"))
+		sb.WriteString(dimText("  Global:  ~/.config/sidecar/config.json"))
 		sb.WriteString("\n")
-		sb.WriteString(dimText("  Project: .sidecar/config.yaml"))
+		sb.WriteString(dimText("  Project: .sidecar/config.json"))
 		sb.WriteString("\n\n")
 		sb.WriteString(dimText("See: docs/guides/creating-prompts.md"))
 		sb.WriteString("\n\n")
@@ -258,7 +275,11 @@ func (pp *PromptPicker) View() string {
 	}
 
 	sb.WriteString("\n")
-	sb.WriteString(dimText("  Enter: select   ↑/↓: move   Tab: toggle focus"))
+	if pp.filterFocused {
+		sb.WriteString(dimText("  Enter: select   ↑/↓: move   Tab: list nav"))
+	} else {
+		sb.WriteString(dimText("  Enter: select   j/k/↑/↓: move   Tab: filter"))
+	}
 
 	return sb.String()
 }

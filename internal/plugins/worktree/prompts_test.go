@@ -144,34 +144,45 @@ func TestLoadPrompts(t *testing.T) {
 	projectDir := t.TempDir()
 
 	// Create global config with prompts
-	globalConfig := `prompts:
-  - name: global-prompt
-    ticketMode: required
-    body: |
-      Global prompt body with {{ticket}}
-  - name: shared-prompt
-    ticketMode: optional
-    body: Global shared body
-`
-	err := os.WriteFile(filepath.Join(globalDir, "config.yaml"), []byte(globalConfig), 0644)
+	globalConfig := `{
+  "prompts": [
+    {
+      "name": "global-prompt",
+      "ticketMode": "required",
+      "body": "Global prompt body with {{ticket}}"
+    },
+    {
+      "name": "shared-prompt",
+      "ticketMode": "optional",
+      "body": "Global shared body"
+    }
+  ]
+}`
+	err := os.WriteFile(filepath.Join(globalDir, "config.json"), []byte(globalConfig), 0644)
 	if err != nil {
 		t.Fatalf("Failed to write global config: %v", err)
 	}
 
-	// Create project config (.sidecar/config.yaml) with prompts
+	// Create project config (.sidecar/config.json) with prompts
 	sidecarDir := filepath.Join(projectDir, ".sidecar")
 	if err := os.MkdirAll(sidecarDir, 0755); err != nil {
 		t.Fatalf("Failed to create .sidecar dir: %v", err)
 	}
-	projectConfig := `prompts:
-  - name: project-prompt
-    ticketMode: none
-    body: Project-only prompt
-  - name: shared-prompt
-    ticketMode: required
-    body: Project override body
-`
-	err = os.WriteFile(filepath.Join(sidecarDir, "config.yaml"), []byte(projectConfig), 0644)
+	projectConfig := `{
+  "prompts": [
+    {
+      "name": "project-prompt",
+      "ticketMode": "none",
+      "body": "Project-only prompt"
+    },
+    {
+      "name": "shared-prompt",
+      "ticketMode": "required",
+      "body": "Project override body"
+    }
+  ]
+}`
+	err = os.WriteFile(filepath.Join(sidecarDir, "config.json"), []byte(projectConfig), 0644)
 	if err != nil {
 		t.Fatalf("Failed to write project config: %v", err)
 	}
@@ -266,11 +277,15 @@ func TestLoadPromptsDefaultTicketMode(t *testing.T) {
 	// Test that ticketMode defaults to optional when not specified
 	globalDir := t.TempDir()
 
-	config := `prompts:
-  - name: no-mode-prompt
-    body: Body without ticketMode
-`
-	err := os.WriteFile(filepath.Join(globalDir, "config.yaml"), []byte(config), 0644)
+	config := `{
+  "prompts": [
+    {
+      "name": "no-mode-prompt",
+      "body": "Body without ticketMode"
+    }
+  ]
+}`
+	err := os.WriteFile(filepath.Join(globalDir, "config.json"), []byte(config), 0644)
 	if err != nil {
 		t.Fatalf("Failed to write config: %v", err)
 	}
@@ -299,9 +314,9 @@ func TestLoadPromptsEmptyDirsCreatesDefaults(t *testing.T) {
 	}
 
 	// Verify config file was created
-	configPath := filepath.Join(globalDir, "config.yaml")
+	configPath := filepath.Join(globalDir, "config.json")
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		t.Error("Expected config.yaml to be created in global dir")
+		t.Error("Expected config.json to be created in global dir")
 	}
 
 	// Verify prompts have correct source
@@ -360,11 +375,15 @@ func TestEnsureDefaultPromptsDoesNotOverwrite(t *testing.T) {
 	globalDir := t.TempDir()
 
 	// Create existing config
-	existingConfig := `prompts:
-  - name: existing-prompt
-    body: Existing body
-`
-	err := os.WriteFile(filepath.Join(globalDir, "config.yaml"), []byte(existingConfig), 0644)
+	existingConfig := `{
+  "prompts": [
+    {
+      "name": "existing-prompt",
+      "body": "Existing body"
+    }
+  ]
+}`
+	err := os.WriteFile(filepath.Join(globalDir, "config.json"), []byte(existingConfig), 0644)
 	if err != nil {
 		t.Fatalf("Failed to write existing config: %v", err)
 	}

@@ -7,8 +7,6 @@ import (
 	"regexp"
 	"sort"
 	"strings"
-
-	"gopkg.in/yaml.v3"
 )
 
 // TicketMode defines how the task field behaves with a prompt.
@@ -22,15 +20,15 @@ const (
 
 // Prompt represents a configurable prompt template.
 type Prompt struct {
-	Name       string     `yaml:"name" json:"name"`
-	TicketMode TicketMode `yaml:"ticketMode" json:"ticketMode"`
-	Body       string     `yaml:"body" json:"body"`
-	Source     string     `yaml:"-" json:"-"` // "global" or "project" (set at load time)
+	Name       string     `json:"name"`
+	TicketMode TicketMode `json:"ticketMode"`
+	Body       string     `json:"body"`
+	Source     string     `json:"-"` // "global" or "project" (set at load time)
 }
 
 // configWithPrompts is the config structure for loading prompts.
 type configWithPrompts struct {
-	Prompts []Prompt `yaml:"prompts" json:"prompts"`
+	Prompts []Prompt `json:"prompts"`
 }
 
 // LoadPrompts loads and merges prompts from global and project config directories.
@@ -73,23 +71,17 @@ func LoadPrompts(globalConfigDir, projectDir string) []Prompt {
 	return result
 }
 
-// loadPromptsFromDir loads prompts from a config file in the given directory.
-// Tries config.yaml, config.yml, config.json in order.
+// loadPromptsFromDir loads prompts from a config.json file in the given directory.
 func loadPromptsFromDir(dir, source string) []Prompt {
-	extensions := []string{".yaml", ".yml", ".json"}
-
-	for _, ext := range extensions {
-		path := filepath.Join(dir, "config"+ext)
-		prompts, err := loadPromptsFromFile(path, source)
-		if err == nil && len(prompts) > 0 {
-			return prompts
-		}
+	path := filepath.Join(dir, "config.json")
+	prompts, err := loadPromptsFromFile(path, source)
+	if err == nil && len(prompts) > 0 {
+		return prompts
 	}
-
 	return nil
 }
 
-// loadPromptsFromFile loads prompts from a specific config file.
+// loadPromptsFromFile loads prompts from a JSON config file.
 func loadPromptsFromFile(path, source string) ([]Prompt, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -97,19 +89,8 @@ func loadPromptsFromFile(path, source string) ([]Prompt, error) {
 	}
 
 	var cfg configWithPrompts
-
-	ext := strings.ToLower(filepath.Ext(path))
-	switch ext {
-	case ".yaml", ".yml":
-		if err := yaml.Unmarshal(data, &cfg); err != nil {
-			return nil, err
-		}
-	case ".json":
-		if err := json.Unmarshal(data, &cfg); err != nil {
-			return nil, err
-		}
-	default:
-		return nil, nil
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return nil, err
 	}
 
 	// Set source on all prompts
@@ -184,13 +165,10 @@ Use: td usage --new-session`,
 // EnsureDefaultPrompts creates the global config with default prompts if no config exists.
 // Returns true if defaults were created.
 func EnsureDefaultPrompts(globalConfigDir string) bool {
-	// Check if any config file exists
-	extensions := []string{".yaml", ".yml", ".json"}
-	for _, ext := range extensions {
-		path := filepath.Join(globalConfigDir, "config"+ext)
-		if _, err := os.Stat(path); err == nil {
-			return false // Config exists, don't overwrite
-		}
+	// Check if config.json exists
+	path := filepath.Join(globalConfigDir, "config.json")
+	if _, err := os.Stat(path); err == nil {
+		return false // Config exists, don't overwrite
 	}
 
 	// Create directory if needed
@@ -198,14 +176,13 @@ func EnsureDefaultPrompts(globalConfigDir string) bool {
 		return false
 	}
 
-	// Write default config as YAML
+	// Write default config as JSON
 	cfg := configWithPrompts{Prompts: DefaultPrompts()}
-	data, err := yaml.Marshal(cfg)
+	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return false
 	}
 
-	path := filepath.Join(globalConfigDir, "config.yaml")
 	if err := os.WriteFile(path, data, 0644); err != nil {
 		return false
 	}

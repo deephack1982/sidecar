@@ -16,7 +16,6 @@ require (
 	github.com/marcus/td v0.12.3
 	github.com/mattn/go-runewidth v0.0.19
 	github.com/mattn/go-sqlite3 v1.14.32
-	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.41.0
 )
 

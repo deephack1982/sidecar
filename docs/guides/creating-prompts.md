@@ -4,36 +4,37 @@ Prompts are reusable templates that configure the initial context for agents whe
 
 ## Configuration Locations
 
-Prompts are defined in YAML or JSON config files:
+Prompts are defined in JSON config files:
 
 | Scope   | Path                                  | Override Priority |
 |---------|---------------------------------------|-------------------|
-| Global  | `~/.config/sidecar/config.yaml`       | Lower             |
-| Project | `.sidecar/config.yaml` (in project)   | Higher            |
+| Global  | `~/.config/sidecar/config.json`       | Lower             |
+| Project | `.sidecar/config.json` (in project)   | Higher            |
 
 Project prompts override global prompts with the same name.
 
 ## Config File Format
 
-```yaml
-# ~/.config/sidecar/config.yaml or .sidecar/config.yaml
-prompts:
-  - name: "Code Review"
-    ticketMode: optional
-    body: |
-      Do a detailed code review of {{ticket || 'open reviews'}}.
-      Focus on correctness, edge cases, and test coverage.
-
-  - name: "Bug Fix"
-    ticketMode: required
-    body: |
-      Fix issue {{ticket}}. Use td to track progress.
-      Run tests before marking complete.
-
-  - name: "Setup Project"
-    ticketMode: none
-    body: |
-      Set up the development environment and verify all tests pass.
+```json
+{
+  "prompts": [
+    {
+      "name": "Code Review",
+      "ticketMode": "optional",
+      "body": "Do a detailed code review of {{ticket || 'open reviews'}}.\nFocus on correctness, edge cases, and test coverage."
+    },
+    {
+      "name": "Bug Fix",
+      "ticketMode": "required",
+      "body": "Fix issue {{ticket}}. Use td to track progress.\nRun tests before marking complete."
+    },
+    {
+      "name": "Setup Project",
+      "ticketMode": "none",
+      "body": "Set up the development environment and verify all tests pass."
+    }
+  ]
+}
 ```
 
 ## Prompt Fields
@@ -51,55 +52,64 @@ Controls how the ticket/task field behaves:
 | `none`     | Task field is hidden, prompt stands alone     |
 
 ### body (required)
-The prompt text sent to the agent. Supports template variables.
+The prompt text sent to the agent. Supports template variables. Use `\n` for newlines.
 
 ## Template Variables
 
 ### `{{ticket}}`
 Expands to the selected task ID. Returns empty string if no task selected.
 
-```yaml
-body: "Fix issue {{ticket}}."
-# With task td-abc123: "Fix issue td-abc123."
-# Without task: "Fix issue ."
+```json
+"body": "Fix issue {{ticket}}."
+// With task td-abc123: "Fix issue td-abc123."
+// Without task: "Fix issue ."
 ```
 
 ### `{{ticket || 'fallback'}}`
 Expands to task ID, or the fallback text if no task selected.
 
-```yaml
-body: "Review {{ticket || 'all open items'}}."
-# With task td-abc123: "Review td-abc123."
-# Without task: "Review all open items."
+```json
+"body": "Review {{ticket || 'all open items'}}."
+// With task td-abc123: "Review td-abc123."
+// Without task: "Review all open items."
 ```
 
 ## Examples
 
 ### Task-Required Workflow
-```yaml
-- name: "Implement Task"
-  ticketMode: required
-  body: |
-    Begin work on {{ticket}}. Use td to track progress.
-    Read the task description carefully before starting.
+```json
+{
+  "name": "Implement Task",
+  "ticketMode": "required",
+  "body": "Begin work on {{ticket}}. Use td to track progress.\nRead the task description carefully before starting."
+}
 ```
 
 ### Standalone Workflow
-```yaml
-- name: "Run Tests"
-  ticketMode: none
-  body: |
-    Run the full test suite. Fix any failures.
-    Report a summary when complete.
+```json
+{
+  "name": "Run Tests",
+  "ticketMode": "none",
+  "body": "Run the full test suite. Fix any failures.\nReport a summary when complete."
+}
 ```
 
 ### Flexible Workflow
-```yaml
-- name: "Code Review Session"
-  ticketMode: optional
-  body: |
-    Start a review session for {{ticket || 'open reviews'}}.
-    Create td tasks for any issues found.
+```json
+{
+  "name": "Code Review Session",
+  "ticketMode": "optional",
+  "body": "Start a review session for {{ticket || 'open reviews'}}.\nCreate td tasks for any issues found."
+}
+```
+
+### Backlog Refinement
+```json
+{
+  "name": "Backlog Refinement",
+  "ticketMode": "none",
+  "body": "Start a backlog refinement session. Use td to find all tasks in the backlog starting with the oldest. For each task:\n\n1. Determine relevance - has it been implemented, is it still needed? If not relevant, comment on the task and close it. If questionable, leave open with notes.\n\n2. Update tasks with out-of-date code references to reflect the current state of the codebase.\n\nUse sub-agents to analyze multiple tasks in parallel. Present a report of findings and changes when complete."
+}
 ```
 
 ## Scope Indicators
@@ -116,3 +126,4 @@ Project prompts take precedence when names match.
 2. **Use `ticketMode: none`** for prompts that don't need a specific task
 3. **Use fallbacks** (`{{ticket || 'default'}}`) for optional task association
 4. **Project prompts** can customize global defaults for specific repos
+5. **Use `\n`** for newlines in prompt bodies

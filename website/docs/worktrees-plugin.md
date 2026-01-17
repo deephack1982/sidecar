@@ -149,10 +149,31 @@ Press `n` to open the create modal:
 |-------|-------------|
 | Name | Worktree branch name |
 | Base branch | Branch to create from |
-| Prompt | Initial agent prompt |
+| Prompt | Initial agent prompt (select from configured prompts) |
 | Task | Link to TD task (optional) |
 | Agent | Which agent to start |
 | Skip perms | Skip permission prompts |
+
+#### Custom Prompts
+
+Prompts are reusable templates configured in JSON files:
+
+- **Global**: `~/.config/sidecar/config.json`
+- **Project**: `.sidecar/config.json` (overrides global)
+
+```json
+{
+  "prompts": [
+    {
+      "name": "Bug Fix",
+      "ticketMode": "required",
+      "body": "Fix issue {{ticket}}. Run tests before marking complete."
+    }
+  ]
+}
+```
+
+See [Creating Prompts](/docs/guides/creating-prompts) for full documentation on prompt configuration, template variables, and examples.
 
 Modal navigation:
 
