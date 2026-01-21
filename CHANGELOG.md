@@ -2,6 +2,11 @@
 
 All notable changes to sidecar are documented here.
 
+## [v0.37.0] - 2026-01-21
+
+### Dependencies
+- Updated embedded td to v0.19.0 (performance fix)
+
 ## [v0.36.0] - 2026-01-21
 
 ### Features
