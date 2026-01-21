@@ -493,6 +493,16 @@ func (p *Plugin) handleListKeys(msg tea.KeyMsg) tea.Cmd {
 		return p.cyclePreviewTab(-1)
 	case "]":
 		return p.cyclePreviewTab(1)
+	case "{":
+		// Jump to previous file in diff (when in preview pane on diff tab)
+		if p.activePane == PanePreview && p.previewTab == PreviewTabDiff {
+			return p.jumpToPrevFile()
+		}
+	case "}":
+		// Jump to next file in diff (when in preview pane on diff tab)
+		if p.activePane == PanePreview && p.previewTab == PreviewTabDiff {
+			return p.jumpToNextFile()
+		}
 	case "r":
 		return func() tea.Msg { return RefreshMsg{} }
 	case "v":

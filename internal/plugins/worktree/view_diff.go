@@ -3,6 +3,7 @@ package worktree
 import (
 	"strings"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/marcus/sidecar/internal/plugins/gitstatus"
 	"github.com/marcus/sidecar/internal/styles"
@@ -39,7 +40,22 @@ func (p *Plugin) renderDiffContent(width, height int) string {
 		contentHeight = 5
 	}
 
-	// Parse the raw diff into structured format
+	// Use multi-file diff rendering if available
+	if p.multiFileDiff != nil && len(p.multiFileDiff.Files) > 0 {
+		var mode gitstatus.DiffViewMode
+		if p.diffViewMode == DiffViewSideBySide {
+			mode = gitstatus.DiffViewSideBySide
+		} else {
+			mode = gitstatus.DiffViewUnified
+		}
+		diffContent := gitstatus.RenderMultiFileDiff(p.multiFileDiff, mode, width, p.previewOffset, contentHeight, p.previewHorizOffset)
+		if header != "" {
+			return header + "\n" + diffContent
+		}
+		return diffContent
+	}
+
+	// Fallback: Parse the raw diff into structured format (single file)
 	parsed, err := gitstatus.ParseUnifiedDiff(p.diffRaw)
 	if err != nil || parsed == nil {
 		// Fallback to basic rendering
@@ -120,6 +136,61 @@ func (p *Plugin) renderDiffContentBasicWithHeight(width, height int) string {
 	}
 
 	return strings.Join(rendered, "\n")
+}
+
+// jumpToNextFile jumps to the next file in the multi-file diff.
+func (p *Plugin) jumpToNextFile() tea.Cmd {
+	if p.multiFileDiff == nil || len(p.multiFileDiff.Files) <= 1 {
+		return nil
+	}
+
+	// Find current file index based on scroll position
+	currentIdx := p.multiFileDiff.FileAtLine(p.previewOffset)
+	if currentIdx < 0 {
+		currentIdx = 0
+	}
+
+	// Jump to next file
+	nextIdx := currentIdx + 1
+	if nextIdx >= len(p.multiFileDiff.Files) {
+		// Already at last file, stay there
+		return nil
+	}
+
+	// Set scroll position to start of next file
+	p.previewOffset = p.multiFileDiff.Files[nextIdx].StartLine
+	return nil
+}
+
+// jumpToPrevFile jumps to the previous file in the multi-file diff.
+func (p *Plugin) jumpToPrevFile() tea.Cmd {
+	if p.multiFileDiff == nil || len(p.multiFileDiff.Files) <= 1 {
+		return nil
+	}
+
+	// Find current file index based on scroll position
+	currentIdx := p.multiFileDiff.FileAtLine(p.previewOffset)
+	if currentIdx < 0 {
+		currentIdx = 0
+	}
+
+	// If we're past the start of current file, jump to its start
+	if p.previewOffset > p.multiFileDiff.Files[currentIdx].StartLine {
+		p.previewOffset = p.multiFileDiff.Files[currentIdx].StartLine
+		return nil
+	}
+
+	// Jump to previous file
+	prevIdx := currentIdx - 1
+	if prevIdx < 0 {
+		// Already at first file, jump to start
+		p.previewOffset = 0
+		return nil
+	}
+
+	// Set scroll position to start of previous file
+	p.previewOffset = p.multiFileDiff.Files[prevIdx].StartLine
+	return nil
 }
 
 // colorDiffLine applies basic diff coloring using theme styles.

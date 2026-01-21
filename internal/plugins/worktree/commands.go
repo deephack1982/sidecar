@@ -85,6 +85,13 @@ func (p *Plugin) Commands() []plugin.Command {
 						diffViewName = "Unified"
 					}
 					cmds = append(cmds, plugin.Command{ID: "toggle-diff-view", Name: diffViewName, Description: "Toggle unified/side-by-side diff", Context: "worktree-preview", Priority: 5})
+					// Add file navigation commands when viewing diff with multiple files
+					if p.multiFileDiff != nil && len(p.multiFileDiff.Files) > 1 {
+						cmds = append(cmds,
+							plugin.Command{ID: "next-file", Name: "}", Description: "Next file", Context: "worktree-preview", Priority: 6},
+							plugin.Command{ID: "prev-file", Name: "{", Description: "Previous file", Context: "worktree-preview", Priority: 7},
+						)
+					}
 				}
 			}
 			// Also show agent commands in preview pane

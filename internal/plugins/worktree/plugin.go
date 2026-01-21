@@ -12,6 +12,7 @@ import (
 	"github.com/marcus/sidecar/internal/markdown"
 	"github.com/marcus/sidecar/internal/mouse"
 	"github.com/marcus/sidecar/internal/plugin"
+	"github.com/marcus/sidecar/internal/plugins/gitstatus"
 	"github.com/marcus/sidecar/internal/state"
 	"github.com/marcus/sidecar/internal/ui"
 )
@@ -136,9 +137,10 @@ type Plugin struct {
 	lastRefresh time.Time
 
 	// Diff state
-	diffContent  string
-	diffRaw      string
-	diffViewMode DiffViewMode // Unified or side-by-side
+	diffContent   string
+	diffRaw       string
+	diffViewMode  DiffViewMode              // Unified or side-by-side
+	multiFileDiff *gitstatus.MultiFileDiff  // Parsed multi-file diff with positions
 
 	// Commit status header for diff view
 	commitStatusList     []CommitStatusInfo
