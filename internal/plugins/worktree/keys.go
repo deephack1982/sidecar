@@ -378,10 +378,14 @@ func (p *Plugin) handleListKeys(msg tea.KeyMsg) tea.Cmd {
 			if len(p.shells) > 0 {
 				p.shellSelected = true
 				p.selectedShellIdx = 0
+				// Exit interactive mode when switching selection (td-fc758e88)
+				p.exitInteractiveMode()
 				p.saveSelectionState()
 			} else if len(p.worktrees) > 0 {
 				p.shellSelected = false
 				p.selectedIdx = 0
+				// Exit interactive mode when switching selection (td-fc758e88)
+				p.exitInteractiveMode()
 				p.saveSelectionState()
 			}
 			p.scrollOffset = 0
@@ -396,6 +400,8 @@ func (p *Plugin) handleListKeys(msg tea.KeyMsg) tea.Cmd {
 			if len(p.worktrees) > 0 {
 				p.shellSelected = false
 				p.selectedIdx = len(p.worktrees) - 1
+				// Exit interactive mode when switching selection (td-fc758e88)
+				p.exitInteractiveMode()
 				p.saveSelectionState()
 				p.ensureVisible()
 				return p.loadSelectedContent()

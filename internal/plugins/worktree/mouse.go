@@ -199,6 +199,12 @@ func (p *Plugin) handleMouseClick(action mouse.MouseAction) tea.Cmd {
 		return nil
 	}
 
+	// Exit interactive mode when clicking outside preview pane (td-80d96956)
+	if p.viewMode == ViewModeInteractive && action.Region.ID != regionPreviewPane {
+		p.exitInteractiveMode()
+		// Continue to handle the click normally
+	}
+
 	switch action.Region.ID {
 	case regionCreateWorktreeButton:
 		// Click on [New] button - open type selector modal
@@ -230,6 +236,8 @@ func (p *Plugin) handleMouseClick(action mouse.MouseAction) tea.Cmd {
 						p.previewHorizOffset = 0
 						p.autoScrollOutput = true
 						p.taskLoading = false // Reset task loading on selection change (td-3668584f)
+						// Exit interactive mode when switching selection (td-fc758e88)
+						p.exitInteractiveMode()
 						p.saveSelectionState()
 					}
 					p.activePane = PaneSidebar
@@ -244,6 +252,8 @@ func (p *Plugin) handleMouseClick(action mouse.MouseAction) tea.Cmd {
 					p.previewHorizOffset = 0
 					p.autoScrollOutput = true
 					p.taskLoading = false // Reset task loading on selection change (td-3668584f)
+					// Exit interactive mode when switching selection (td-fc758e88)
+					p.exitInteractiveMode()
 					p.saveSelectionState()
 				}
 				p.ensureVisible()
@@ -320,6 +330,8 @@ func (p *Plugin) handleMouseClick(action mouse.MouseAction) tea.Cmd {
 			p.kanbanCol = data.col
 			p.kanbanRow = data.row
 			p.taskLoading = false // Reset task loading on selection change (td-3668584f)
+			// Exit interactive mode when switching selection (td-fc758e88)
+			p.exitInteractiveMode()
 			p.syncKanbanToList()
 			return p.loadSelectedContent()
 		}
@@ -483,8 +495,8 @@ func (p *Plugin) handleMouseClick(action mouse.MouseAction) tea.Cmd {
 
 // handleMouseDoubleClick handles double-click events.
 func (p *Plugin) handleMouseDoubleClick(action mouse.MouseAction) tea.Cmd {
-	// Ignore double-clicks when a modal is open
-	if p.viewMode != ViewModeList && p.viewMode != ViewModeKanban {
+	// Ignore double-clicks when a modal is open (except interactive mode)
+	if p.viewMode != ViewModeList && p.viewMode != ViewModeKanban && p.viewMode != ViewModeInteractive {
 		return nil
 	}
 	if action.Region == nil {
@@ -493,11 +505,21 @@ func (p *Plugin) handleMouseDoubleClick(action mouse.MouseAction) tea.Cmd {
 
 	switch action.Region.ID {
 	case regionPreviewPane:
-		// Double-click in preview pane attaches to tmux session if agent running
-		wt := p.selectedWorktree()
-		if wt != nil && wt.Agent != nil && wt.Agent.TmuxSession != "" {
-			p.attachedSession = wt.Name
-			return p.AttachToSession(wt)
+		// Double-click in preview pane: enter interactive mode if Output tab active (td-80d96956)
+		// This provides seamless terminal integration without detaching from sidecar
+		if p.previewTab == PreviewTabOutput {
+			// Check for active session (worktree or shell)
+			if p.shellSelected {
+				shell := p.getSelectedShell()
+				if shell != nil && shell.Agent != nil {
+					return p.enterInteractiveMode()
+				}
+			} else {
+				wt := p.selectedWorktree()
+				if wt != nil && wt.Agent != nil && wt.Agent.TmuxSession != "" {
+					return p.enterInteractiveMode()
+				}
+			}
 		}
 	case regionWorktreeItem:
 		// Double-click on worktree or shell - attach to tmux session if exists
@@ -684,6 +706,8 @@ func (p *Plugin) scrollKanban(delta int) tea.Cmd {
 	if newRow != p.kanbanRow {
 		p.kanbanRow = newRow
 		p.taskLoading = false // Reset task loading on selection change (td-3668584f)
+		// Exit interactive mode when switching selection (td-fc758e88)
+		p.exitInteractiveMode()
 		p.syncKanbanToList()
 		return p.loadSelectedContent()
 	}

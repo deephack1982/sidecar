@@ -784,6 +784,8 @@ func (p *Plugin) moveCursor(delta int) {
 		p.previewHorizOffset = 0
 		p.autoScrollOutput = true
 		p.taskLoading = false // Reset task loading state for new selection (td-3668584f)
+		// Exit interactive mode when switching selection (td-fc758e88)
+		p.exitInteractiveMode()
 		// Persist selection to disk
 		p.saveSelectionState()
 	}

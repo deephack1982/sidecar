@@ -326,6 +326,29 @@ func (m Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// Interactive mode: forward ALL keys to plugin except ctrl+c
+	// This ensures characters like `, ~, ?, !, @, 1-5 reach tmux instead of triggering app shortcuts
+	if m.activeContext == "worktree-interactive" {
+		// ctrl+c shows quit confirmation
+		if msg.String() == "ctrl+c" {
+			if !m.showHelp && !m.showDiagnostics && !m.showPalette {
+				m.showQuitConfirm = true
+			}
+			return m, nil
+		}
+		// Forward everything else to plugin (exit keys handled by plugin)
+		if p := m.ActivePlugin(); p != nil {
+			newPlugin, cmd := p.Update(msg)
+			plugins := m.registry.Plugins()
+			if m.activePlugin < len(plugins) {
+				plugins[m.activePlugin] = newPlugin
+			}
+			m.updateContext()
+			return m, cmd
+		}
+		return m, nil
+	}
+
 	// Text input contexts: forward all keys to plugin except ctrl+c
 	// This ensures typing works correctly in commit messages, search boxes, etc.
 	if m.activeContext == "git-commit" {

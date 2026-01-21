@@ -264,7 +264,26 @@ func (p *Plugin) renderOutputContent(width, height int) string {
 		displayLines = append(displayLines, displayLine)
 	}
 
-	return hint + "\n" + strings.Join(displayLines, "\n")
+	content := strings.Join(displayLines, "\n")
+
+	// Apply cursor overlay in interactive mode
+	if p.viewMode == ViewModeInteractive && p.interactiveState != nil && p.interactiveState.Active {
+		row, col, visible, err := p.getCursorPosition()
+		if err == nil && visible {
+			// Calculate relative row within visible viewport
+			relativeRow := row - start
+			// Adjust column for horizontal offset
+			relativeCol := col - p.previewHorizOffset
+			// Only render cursor if within visible area (td-05176a07: added width check)
+			// - relativeRow in [0, len(displayLines)): row is visible
+			// - relativeCol in [0, width): column is visible (not off-screen left or right)
+			if relativeRow >= 0 && relativeRow < len(displayLines) && relativeCol >= 0 && relativeCol < width {
+				content = renderWithCursor(content, relativeRow, relativeCol, visible)
+			}
+		}
+	}
+
+	return hint + "\n" + content
 }
 
 // renderOrphanedMessage renders the recovery prompt for orphaned worktrees.
@@ -366,7 +385,26 @@ func (p *Plugin) renderShellOutput(width, height int) string {
 		displayLines = append(displayLines, displayLine)
 	}
 
-	return hint + "\n" + strings.Join(displayLines, "\n")
+	content := strings.Join(displayLines, "\n")
+
+	// Apply cursor overlay in interactive mode
+	if p.viewMode == ViewModeInteractive && p.interactiveState != nil && p.interactiveState.Active {
+		row, col, visible, err := p.getCursorPosition()
+		if err == nil && visible {
+			// Calculate relative row within visible viewport
+			relativeRow := row - start
+			// Adjust column for horizontal offset
+			relativeCol := col - p.previewHorizOffset
+			// Only render cursor if within visible area (td-05176a07: added width check)
+			// - relativeRow in [0, len(displayLines)): row is visible
+			// - relativeCol in [0, width): column is visible (not off-screen left or right)
+			if relativeRow >= 0 && relativeRow < len(displayLines) && relativeCol >= 0 && relativeCol < width {
+				content = renderWithCursor(content, relativeRow, relativeCol, visible)
+			}
+		}
+	}
+
+	return hint + "\n" + content
 }
 
 // renderShellPrimer renders a helpful guide when no shell session exists.

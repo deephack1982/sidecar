@@ -1,12 +1,17 @@
 package worktree
 
 import (
+	"github.com/marcus/sidecar/internal/features"
 	"github.com/marcus/sidecar/internal/plugin"
 )
 
 // Commands returns the available commands.
 func (p *Plugin) Commands() []plugin.Command {
 	switch p.viewMode {
+	case ViewModeInteractive:
+		return []plugin.Command{
+			{ID: "exit-interactive", Name: "Exit", Description: "Exit interactive mode (Ctrl+\\)", Context: "worktree-interactive", Priority: 1},
+		}
 	case ViewModeCreate:
 		return []plugin.Command{
 			{ID: "cancel", Name: "Cancel", Description: "Cancel worktree creation", Context: "worktree-create", Priority: 1},
@@ -121,6 +126,23 @@ func (p *Plugin) Commands() []plugin.Command {
 					}
 				}
 			}
+			// Show interactive mode hint when feature enabled and session active
+			// Worktree: needs agent and Output tab; Shell: always shows output
+			if features.IsEnabled(features.TmuxInteractiveInput.Name) {
+				hasActiveSession := false
+				if p.shellSelected {
+					if shell := p.getSelectedShell(); shell != nil && shell.Agent != nil {
+						hasActiveSession = true
+					}
+				} else if wt != nil && wt.Agent != nil && p.previewTab == PreviewTabOutput {
+					hasActiveSession = true
+				}
+				if hasActiveSession {
+					cmds = append(cmds,
+						plugin.Command{ID: "interactive", Name: "Type", Description: "Enter interactive mode (i)", Context: "worktree-preview", Priority: 15},
+					)
+				}
+			}
 			return cmds
 		}
 
@@ -198,6 +220,8 @@ func (p *Plugin) Commands() []plugin.Command {
 // FocusContext returns the current focus context for keybinding dispatch.
 func (p *Plugin) FocusContext() string {
 	switch p.viewMode {
+	case ViewModeInteractive:
+		return "worktree-interactive"
 	case ViewModeCreate:
 		return "worktree-create"
 	case ViewModeTaskLink:

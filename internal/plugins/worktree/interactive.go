@@ -2,9 +2,13 @@ package worktree
 
 import (
 	"os/exec"
+	"strconv"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/marcus/sidecar/internal/features"
 )
 
@@ -179,6 +183,32 @@ func sendLiteralToTmux(sessionName, text string) error {
 	return cmd.Run()
 }
 
+// sendPasteToTmux pastes multi-line text via tmux buffer.
+// Uses load-buffer + paste-buffer which works regardless of app paste mode state.
+func sendPasteToTmux(sessionName, text string) error {
+	// Load text into tmux default buffer via stdin
+	loadCmd := exec.Command("tmux", "load-buffer", "-")
+	loadCmd.Stdin = strings.NewReader(text)
+	if err := loadCmd.Run(); err != nil {
+		return err
+	}
+
+	// Paste buffer into target pane
+	pasteCmd := exec.Command("tmux", "paste-buffer", "-t", sessionName)
+	return pasteCmd.Run()
+}
+
+// isPasteInput detects if the input is a paste operation.
+// Returns true if the input contains newlines or is longer than a typical typed sequence.
+func isPasteInput(msg tea.KeyMsg) bool {
+	if msg.Type != tea.KeyRunes || len(msg.Runes) <= 1 {
+		return false
+	}
+	text := string(msg.Runes)
+	// Treat as paste if contains newline or is suspiciously long for typing
+	return strings.Contains(text, "\n") || len(msg.Runes) > 10
+}
+
 // enterInteractiveMode enters interactive mode for the current selection.
 // Returns a tea.Cmd if mode entry succeeded, nil otherwise.
 // Requires tmux_interactive_input feature flag to be enabled.
@@ -283,13 +313,25 @@ func (p *Plugin) handleInteractiveKeys(msg tea.KeyMsg) tea.Cmd {
 	// Update last key time for polling decay
 	p.interactiveState.LastKeyTime = time.Now()
 
+	sessionName := p.interactiveState.TargetSession
+
+	// Check for paste (multi-character input with newlines or long text)
+	if isPasteInput(msg) {
+		text := string(msg.Runes)
+		if err := sendPasteToTmux(sessionName, text); err != nil {
+			p.exitInteractiveMode()
+			return nil
+		}
+		cmds = append(cmds, p.pollInteractivePane())
+		return tea.Batch(cmds...)
+	}
+
 	// Map key to tmux format and send
 	key, useLiteral := MapKeyToTmux(msg)
 	if key == "" {
 		return tea.Batch(cmds...)
 	}
 
-	sessionName := p.interactiveState.TargetSession
 	var err error
 	if useLiteral {
 		err = sendLiteralToTmux(sessionName, key)
@@ -356,4 +398,85 @@ func (p *Plugin) pollInteractivePane() tea.Cmd {
 		return p.scheduleAgentPoll(wt.Name, interval)
 	}
 	return nil
+}
+
+// cursorStyle defines the appearance of the cursor overlay (reverse video).
+var cursorStyle = lipgloss.NewStyle().Reverse(true)
+
+// getCursorPosition queries tmux for the current cursor position in the target pane.
+// Returns the cursor row, column (0-indexed), and whether the cursor is visible.
+func (p *Plugin) getCursorPosition() (row, col int, visible bool, err error) {
+	if p.interactiveState == nil || !p.interactiveState.Active {
+		return 0, 0, false, nil
+	}
+
+	paneID := p.interactiveState.TargetPane
+	if paneID == "" {
+		// Fall back to session name if pane ID not available
+		paneID = p.interactiveState.TargetSession
+	}
+
+	// Query cursor position using tmux display-message
+	// #{cursor_x},#{cursor_y} gives 0-indexed position
+	// #{cursor_flag} is 0 if cursor hidden (e.g., alternate screen), 1 if visible
+	cmd := exec.Command("tmux", "display-message", "-t", paneID,
+		"-p", "#{cursor_x},#{cursor_y},#{cursor_flag}")
+	output, err := cmd.Output()
+	if err != nil {
+		return 0, 0, false, err
+	}
+
+	parts := strings.Split(strings.TrimSpace(string(output)), ",")
+	if len(parts) < 2 {
+		return 0, 0, false, nil
+	}
+
+	col, _ = strconv.Atoi(parts[0])
+	row, _ = strconv.Atoi(parts[1])
+	visible = len(parts) < 3 || parts[2] != "0"
+
+	// Update cached position in state
+	p.interactiveState.CursorCol = col
+	p.interactiveState.CursorRow = row
+
+	return row, col, visible, nil
+}
+
+// renderWithCursor overlays the cursor on content at the specified position.
+// cursorRow is relative to the visible content (0 = first visible line).
+// cursorCol is the column within the line (0-indexed).
+// Preserves ANSI escape codes in surrounding content while rendering cursor.
+func renderWithCursor(content string, cursorRow, cursorCol int, visible bool) string {
+	if !visible || cursorRow < 0 || cursorCol < 0 {
+		return content
+	}
+
+	lines := strings.Split(content, "\n")
+	if cursorRow >= len(lines) {
+		return content
+	}
+
+	line := lines[cursorRow]
+
+	// Use ANSI-aware width calculation for visual position
+	lineWidth := ansi.StringWidth(line)
+
+	if cursorCol >= lineWidth {
+		// Cursor past end of line: append cursor block
+		lines[cursorRow] = line + cursorStyle.Render(" ")
+	} else {
+		// Use ANSI-aware slicing to preserve escape codes in before/after
+		before := ansi.Cut(line, 0, cursorCol)
+		char := ansi.Cut(line, cursorCol, cursorCol+1)
+		after := ansi.Cut(line, cursorCol+1, lineWidth)
+
+		// Strip the cursor char to get clean reverse video styling
+		charStripped := ansi.Strip(char)
+		if charStripped == "" {
+			charStripped = " "
+		}
+		lines[cursorRow] = before + cursorStyle.Render(charStripped) + after
+	}
+
+	return strings.Join(lines, "\n")
 }
