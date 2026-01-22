@@ -1817,7 +1817,23 @@ func (p *Plugin) renderTypeSelectorModal(width, height int) string {
 	}
 
 	sb.WriteString("\n")
-	sb.WriteString(dimText("↑/↓ select  Enter confirm  Esc cancel"))
+
+	// Buttons - Confirm and Cancel
+	confirmStyle := styles.Button
+	cancelStyle := styles.Button
+	if p.typeSelectorFocus == 1 {
+		confirmStyle = styles.ButtonFocused
+	} else if p.typeSelectorButtonHover == 1 {
+		confirmStyle = styles.ButtonHover
+	}
+	if p.typeSelectorFocus == 2 {
+		cancelStyle = styles.ButtonFocused
+	} else if p.typeSelectorButtonHover == 2 {
+		cancelStyle = styles.ButtonHover
+	}
+	sb.WriteString(confirmStyle.Render(" Confirm "))
+	sb.WriteString("  ")
+	sb.WriteString(cancelStyle.Render(" Cancel "))
 
 	content := sb.String()
 	modal := modalStyle.Width(modalW).Render(content)
@@ -1835,6 +1851,14 @@ func (p *Plugin) renderTypeSelectorModal(width, height int) string {
 	for i := range options {
 		p.mouseHandler.HitMap.AddRect(regionTypeSelectorOption, modalX+3, optionStartY+i, optionW, 1, i)
 	}
+
+	// Register hit regions for buttons
+	// Buttons are after options (2 lines) + blank (1 line) = 3 more lines from options
+	buttonY := optionStartY + 3
+	hitX := modalX + 3 // border + padding
+	p.mouseHandler.HitMap.AddRect(regionTypeSelectorConfirm, hitX, buttonY, 13, 1, nil)
+	cancelX := hitX + 13 + 2 // confirm width + spacing
+	p.mouseHandler.HitMap.AddRect(regionTypeSelectorCancel, cancelX, buttonY, 12, 1, nil)
 
 	return ui.OverlayModal(background, modal, width, height)
 }

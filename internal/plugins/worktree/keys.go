@@ -47,29 +47,58 @@ func (p *Plugin) handleKeyPress(msg tea.KeyMsg) tea.Cmd {
 // handleTypeSelectorKeys handles keys in the type selector modal.
 func (p *Plugin) handleTypeSelectorKeys(msg tea.KeyMsg) tea.Cmd {
 	switch msg.String() {
+	case "tab":
+		// Cycle focus forward: options (0) -> Confirm (1) -> Cancel (2) -> options (0)
+		p.typeSelectorFocus = (p.typeSelectorFocus + 1) % 3
+		p.typeSelectorHover = -1
+		p.typeSelectorButtonHover = 0
+	case "shift+tab":
+		// Cycle focus backward: options (0) -> Cancel (2) -> Confirm (1) -> options (0)
+		p.typeSelectorFocus--
+		if p.typeSelectorFocus < 0 {
+			p.typeSelectorFocus = 2
+		}
+		p.typeSelectorHover = -1
+		p.typeSelectorButtonHover = 0
 	case "j", "down":
-		if p.typeSelectorIdx < 1 {
+		// Only navigate options when focus is on options (focus=0)
+		if p.typeSelectorFocus == 0 && p.typeSelectorIdx < 1 {
 			p.typeSelectorIdx++
 		}
 		p.typeSelectorHover = -1 // Clear hover on keyboard nav
 	case "k", "up":
-		if p.typeSelectorIdx > 0 {
+		// Only navigate options when focus is on options (focus=0)
+		if p.typeSelectorFocus == 0 && p.typeSelectorIdx > 0 {
 			p.typeSelectorIdx--
 		}
 		p.typeSelectorHover = -1 // Clear hover on keyboard nav
 	case "enter":
-		p.viewMode = ViewModeList
-		p.typeSelectorHover = -1
-		if p.typeSelectorIdx == 0 {
-			// Create new shell
-			return p.createNewShell()
+		// Execute based on current focus
+		switch p.typeSelectorFocus {
+		case 0, 1: // Options or Confirm button
+			p.viewMode = ViewModeList
+			p.typeSelectorHover = -1
+			p.typeSelectorFocus = 0
+			p.typeSelectorButtonHover = 0
+			if p.typeSelectorIdx == 0 {
+				// Create new shell
+				return p.createNewShell()
+			}
+			// Open worktree create modal
+			return p.openCreateModal()
+		case 2: // Cancel button
+			p.viewMode = ViewModeList
+			p.typeSelectorIdx = 1    // Reset to default (Worktree)
+			p.typeSelectorHover = -1 // Clear hover state
+			p.typeSelectorFocus = 0  // Reset focus
+			p.typeSelectorButtonHover = 0
 		}
-		// Open worktree create modal
-		return p.openCreateModal()
 	case "esc", "q":
 		p.viewMode = ViewModeList
 		p.typeSelectorIdx = 1    // Reset to default (Worktree)
 		p.typeSelectorHover = -1 // Clear hover state
+		p.typeSelectorFocus = 0  // Reset focus
+		p.typeSelectorButtonHover = 0
 	}
 	return nil
 }
@@ -415,8 +444,10 @@ func (p *Plugin) handleListKeys(msg tea.KeyMsg) tea.Cmd {
 	case "n":
 		// Open type selector modal to choose between Shell and Worktree
 		p.viewMode = ViewModeTypeSelector
-		p.typeSelectorIdx = 1    // Default to Worktree (more common)
-		p.typeSelectorHover = -1 // No hover initially (0-based: -1 = none)
+		p.typeSelectorIdx = 1         // Default to Worktree (more common)
+		p.typeSelectorHover = -1      // No hover initially (0-based: -1 = none)
+		p.typeSelectorFocus = 0       // Focus on options by default
+		p.typeSelectorButtonHover = 0 // No button hover initially
 		return nil
 	case "D":
 		// Check if deleting a shell session

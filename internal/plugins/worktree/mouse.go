@@ -158,6 +158,7 @@ func (p *Plugin) handleMouseHover(action mouse.MouseAction) tea.Cmd {
 	case ViewModeTypeSelector:
 		if action.Region == nil {
 			p.typeSelectorHover = -1 // No hover
+			p.typeSelectorButtonHover = 0
 			return nil
 		}
 		switch action.Region.ID {
@@ -165,8 +166,16 @@ func (p *Plugin) handleMouseHover(action mouse.MouseAction) tea.Cmd {
 			if idx, ok := action.Region.Data.(int); ok {
 				p.typeSelectorHover = idx // 0=Shell, 1=Worktree (consistent with typeSelectorIdx)
 			}
+			p.typeSelectorButtonHover = 0
+		case regionTypeSelectorConfirm:
+			p.typeSelectorButtonHover = 1
+			p.typeSelectorHover = -1
+		case regionTypeSelectorCancel:
+			p.typeSelectorButtonHover = 2
+			p.typeSelectorHover = -1
 		default:
 			p.typeSelectorHover = -1
+			p.typeSelectorButtonHover = 0
 		}
 	default:
 		p.createButtonHover = 0
@@ -495,16 +504,27 @@ func (p *Plugin) handleMouseClick(action mouse.MouseAction) tea.Cmd {
 			}
 		}
 	case regionTypeSelectorOption:
-		// Click on type selector option - select and execute
+		// Click on type selector option - select it (visual only)
 		if idx, ok := action.Region.Data.(int); ok {
-			p.viewMode = ViewModeList
-			if idx == 0 {
-				// Create new shell
-				return p.createNewShell()
-			}
-			// Open worktree create modal
-			return p.openCreateModal()
+			p.typeSelectorIdx = idx
+			p.typeSelectorFocus = 0 // Keep focus on options
 		}
+	case regionTypeSelectorConfirm:
+		// Click confirm button - execute selected option
+		p.viewMode = ViewModeList
+		if p.typeSelectorIdx == 0 {
+			// Create new shell
+			return p.createNewShell()
+		}
+		// Open worktree create modal
+		return p.openCreateModal()
+	case regionTypeSelectorCancel:
+		// Click cancel button - close modal
+		p.viewMode = ViewModeList
+		p.typeSelectorIdx = 1    // Reset to default (Worktree)
+		p.typeSelectorHover = -1 // Clear hover state
+		p.typeSelectorFocus = 0  // Reset focus
+		p.typeSelectorButtonHover = 0
 	}
 	return nil
 }

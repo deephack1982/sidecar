@@ -82,6 +82,8 @@ const (
 
 	// Type selector modal regions
 	regionTypeSelectorOption = "type-selector-option"
+	regionTypeSelectorConfirm = "type-selector-confirm"
+	regionTypeSelectorCancel  = "type-selector-cancel"
 
 	// Shell delete confirmation modal regions
 	regionDeleteShellConfirmDelete = "delete-shell-confirm-delete"
@@ -269,8 +271,10 @@ type Plugin struct {
 	shellSelected    bool            // True when any shell is selected (vs a worktree)
 
 	// Type selector modal state (shell vs worktree)
-	typeSelectorIdx   int // 0=Shell, 1=Worktree
-	typeSelectorHover int // Mouse hover: 0=none, 1=Shell, 2=Worktree
+	typeSelectorIdx         int // 0=Shell, 1=Worktree
+	typeSelectorHover       int // Mouse hover: -1=none, 0=Shell, 1=Worktree
+	typeSelectorFocus       int // Focus: 0=options, 1=Confirm, 2=Cancel
+	typeSelectorButtonHover int // Button hover: 0=none, 1=Confirm, 2=Cancel
 }
 
 // New creates a new worktree manager plugin.
