@@ -769,7 +769,8 @@ func (p *Plugin) handleMouseDragEnd() tea.Cmd {
 	// Persist sidebar width
 	_ = state.SetWorktreeSidebarWidth(p.sidebarWidth)
 	if p.viewMode == ViewModeInteractive && p.interactiveState != nil && p.interactiveState.Active {
-		return tea.Batch(p.resizeInteractivePaneCmd(), p.pollInteractivePaneImmediate(), p.queryCursorPositionCmd())
+		// Poll captures cursor atomically - no separate query needed
+		return tea.Batch(p.resizeInteractivePaneCmd(), p.pollInteractivePaneImmediate())
 	}
 	return nil
 }

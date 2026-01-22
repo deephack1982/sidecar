@@ -509,7 +509,8 @@ func (p *Plugin) handleListKeys(msg tea.KeyMsg) tea.Cmd {
 	case "\\":
 		p.toggleSidebar()
 		if p.viewMode == ViewModeInteractive {
-			return tea.Batch(p.resizeInteractivePaneCmd(), p.pollInteractivePaneImmediate(), p.queryCursorPositionCmd())
+			// Poll captures cursor atomically - no separate query needed
+			return tea.Batch(p.resizeInteractivePaneCmd(), p.pollInteractivePaneImmediate())
 		}
 	case "tab", "shift+tab":
 		// Switch focus between panes (consistent with other plugins)

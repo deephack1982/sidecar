@@ -80,6 +80,11 @@ type (
 		TmuxName string // Session name (stable identifier)
 		Output   string
 		Changed  bool
+		// Cursor position captured atomically with output (only set in interactive mode)
+		CursorRow     int
+		CursorCol     int
+		CursorVisible bool
+		HasCursor     bool // True if cursor position was captured
 	}
 
 	// RenameShellDoneMsg signals shell rename operation completed
@@ -397,6 +402,15 @@ func (p *Plugin) pollShellSessionByName(tmuxName string) tea.Cmd {
 		selectedShell != nil &&
 		selectedShell.TmuxName == tmuxName
 
+	// Capture cursor target for atomic cursor position query
+	var cursorTarget string
+	if interactiveCapture && p.interactiveState != nil {
+		cursorTarget = p.interactiveState.TargetPane
+		if cursorTarget == "" {
+			cursorTarget = p.interactiveState.TargetSession
+		}
+	}
+
 	return func() tea.Msg {
 		// Use direct capture for shells (no batch), preserving wraps in interactive mode.
 		// Shell sessions have prefix "sidecar-sh-" not "sidecar-wt-" so batch capture skips them.
@@ -415,13 +429,28 @@ func (p *Plugin) pollShellSessionByName(tmuxName string) tea.Cmd {
 			return ShellOutputMsg{TmuxName: tmuxName, Output: "", Changed: false}
 		}
 
+		// Capture cursor position atomically with output when in interactive mode.
+		var cursorRow, cursorCol int
+		var cursorVisible, hasCursor bool
+		if interactiveCapture && cursorTarget != "" {
+			cursorRow, cursorCol, cursorVisible, hasCursor = queryCursorPositionSync(cursorTarget)
+		}
+
 		// Trim to max bytes
 		output = trimCapturedOutput(output, maxBytes)
 
 		// Update buffer and check if content changed
 		changed := outputBuf.Update(output)
 
-		return ShellOutputMsg{TmuxName: tmuxName, Output: output, Changed: changed}
+		return ShellOutputMsg{
+			TmuxName:      tmuxName,
+			Output:        output,
+			Changed:       changed,
+			CursorRow:     cursorRow,
+			CursorCol:     cursorCol,
+			CursorVisible: cursorVisible,
+			HasCursor:     hasCursor,
+		}
 	}
 }
 

@@ -205,7 +205,7 @@ func (p *Plugin) renderOutputContent(width, height int) string {
 		interactiveStyle := lipgloss.NewStyle().
 			Foreground(lipgloss.Color(styles.GetCurrentTheme().Colors.Warning)).
 			Bold(true)
-		hint = interactiveStyle.Render("INTERACTIVE") + " " + dimText("Ctrl+\\ exit • Ctrl+] attach • typing goes to tmux")
+		hint = interactiveStyle.Render("INTERACTIVE") + " " + dimText("Ctrl+\\ exit • Ctrl+] attach")
 	} else {
 		// Only show "i for interactive" hint if feature flag is enabled
 		if features.IsEnabled(features.TmuxInteractiveInput.Name) {
@@ -270,16 +270,10 @@ func (p *Plugin) renderOutputContent(width, height int) string {
 	if p.viewMode == ViewModeInteractive && p.interactiveState != nil && p.interactiveState.Active {
 		row, col, visible, err := p.getCursorPosition()
 		if err == nil && visible {
-			// tmux cursor_y is already relative to the visible pane (0 to pane_height-1),
-			// NOT an absolute line number in the scrollback buffer.
-			// Since we resize the tmux pane to match our display height (td-c7dd1e),
-			// the cursor row maps directly to our display row.
-			relativeRow := row
-			// Adjust column for horizontal offset
+			relativeRow := row + 1 // tmux reports cursor one row too high
 			relativeCol := col - p.previewHorizOffset
+
 			// Only render cursor if within visible area
-			// - relativeRow in [0, len(displayLines)): row is visible
-			// - relativeCol in [0, width): column is visible (not off-screen left or right)
 			if relativeRow >= 0 && relativeRow < len(displayLines) && relativeCol >= 0 && relativeCol < width {
 				content = renderWithCursor(content, relativeRow, relativeCol, visible)
 			}
@@ -334,7 +328,7 @@ func (p *Plugin) renderShellOutput(width, height int) string {
 		interactiveStyle := lipgloss.NewStyle().
 			Foreground(lipgloss.Color(styles.GetCurrentTheme().Colors.Warning)).
 			Bold(true)
-		hint = interactiveStyle.Render("INTERACTIVE") + " " + dimText("Ctrl+\\ exit • Ctrl+] attach • typing goes to tmux")
+		hint = interactiveStyle.Render("INTERACTIVE") + " " + dimText("Ctrl+\\ exit")
 	} else {
 		// Only show "i for interactive" hint if feature flag is enabled
 		if features.IsEnabled(features.TmuxInteractiveInput.Name) {
@@ -394,16 +388,10 @@ func (p *Plugin) renderShellOutput(width, height int) string {
 	if p.viewMode == ViewModeInteractive && p.interactiveState != nil && p.interactiveState.Active {
 		row, col, visible, err := p.getCursorPosition()
 		if err == nil && visible {
-			// tmux cursor_y is already relative to the visible pane (0 to pane_height-1),
-			// NOT an absolute line number in the scrollback buffer.
-			// Since we resize the tmux pane to match our display height (td-c7dd1e),
-			// the cursor row maps directly to our display row.
-			relativeRow := row
-			// Adjust column for horizontal offset
+			relativeRow := row + 1 // tmux reports cursor one row too high
 			relativeCol := col - p.previewHorizOffset
+
 			// Only render cursor if within visible area
-			// - relativeRow in [0, len(displayLines)): row is visible
-			// - relativeCol in [0, width): column is visible (not off-screen left or right)
 			if relativeRow >= 0 && relativeRow < len(displayLines) && relativeCol >= 0 && relativeCol < width {
 				content = renderWithCursor(content, relativeRow, relativeCol, visible)
 			}

@@ -20,7 +20,8 @@ func (p *Plugin) Update(msg tea.Msg) (plugin.Plugin, tea.Cmd) {
 		p.width = msg.Width
 		p.height = msg.Height
 		if p.viewMode == ViewModeInteractive && p.interactiveState != nil && p.interactiveState.Active {
-			return p, tea.Batch(p.resizeInteractivePaneCmd(), p.pollInteractivePaneImmediate(), p.queryCursorPositionCmd())
+			// Poll captures cursor atomically - no separate query needed
+			return p, tea.Batch(p.resizeInteractivePaneCmd(), p.pollInteractivePaneImmediate())
 		}
 		return p, nil
 
@@ -281,12 +282,16 @@ func (p *Plugin) Update(msg tea.Msg) (plugin.Plugin, tea.Cmd) {
 			// Track poll time for runaway detection (td-018f25)
 			wt.Agent.RecordPollTime()
 		}
-		// Update bracketed paste mode if in interactive mode for this worktree (td-79ab6163)
+		// Update bracketed paste mode and cursor position if in interactive mode (td-79ab6163)
 		if p.viewMode == ViewModeInteractive && !p.shellSelected {
 			if wt := p.selectedWorktree(); wt != nil && wt.Name == msg.WorktreeName {
 				p.updateBracketedPasteMode(msg.Output)
-				// Query cursor position async when output changes in interactive mode (td-648af4)
-				cmds = append(cmds, p.queryCursorPositionCmd())
+				// Use cursor position captured atomically with output (no separate query needed)
+				if msg.HasCursor && p.interactiveState != nil && p.interactiveState.Active {
+					p.interactiveState.CursorRow = msg.CursorRow
+					p.interactiveState.CursorCol = msg.CursorCol
+					p.interactiveState.CursorVisible = msg.CursorVisible
+				}
 			}
 		}
 		// Schedule next poll with adaptive interval based on status
@@ -336,9 +341,14 @@ func (p *Plugin) Update(msg tea.Msg) (plugin.Plugin, tea.Cmd) {
 			}
 		}
 		cmds = append(cmds, p.scheduleAgentPoll(msg.WorktreeName, interval))
+		// Use cursor position captured atomically with output (no separate query needed)
 		if p.viewMode == ViewModeInteractive && !p.shellSelected {
 			if wt := p.selectedWorktree(); wt != nil && wt.Name == msg.WorktreeName {
-				cmds = append(cmds, p.queryCursorPositionCmd())
+				if msg.HasCursor && p.interactiveState != nil && p.interactiveState.Active {
+					p.interactiveState.CursorRow = msg.CursorRow
+					p.interactiveState.CursorCol = msg.CursorCol
+					p.interactiveState.CursorVisible = msg.CursorVisible
+				}
 			}
 		}
 		return p, tea.Batch(cmds...)
@@ -477,12 +487,16 @@ func (p *Plugin) Update(msg tea.Msg) (plugin.Plugin, tea.Cmd) {
 		if shell != nil && msg.Changed && shell.Agent != nil {
 			shell.Agent.LastOutput = time.Now()
 		}
-		// Update bracketed paste mode if in interactive mode for this shell (td-79ab6163)
+		// Update bracketed paste mode and cursor position if in interactive mode (td-79ab6163)
 		if p.viewMode == ViewModeInteractive && p.shellSelected {
 			if selectedShell := p.getSelectedShell(); selectedShell != nil && selectedShell.TmuxName == msg.TmuxName {
 				p.updateBracketedPasteMode(msg.Output)
-				// Query cursor position async when output changes in interactive mode (td-648af4)
-				cmds = append(cmds, p.queryCursorPositionCmd())
+				// Use cursor position captured atomically with output (no separate query needed)
+				if msg.HasCursor && p.interactiveState != nil && p.interactiveState.Active {
+					p.interactiveState.CursorRow = msg.CursorRow
+					p.interactiveState.CursorCol = msg.CursorCol
+					p.interactiveState.CursorVisible = msg.CursorVisible
+				}
 			}
 		}
 		// Schedule next poll with adaptive interval

@@ -28,6 +28,11 @@ type AgentOutputMsg struct {
 	Output       string
 	Status       WorktreeStatus
 	WaitingFor   string
+	// Cursor position captured atomically with output (only set in interactive mode)
+	CursorRow     int
+	CursorCol     int
+	CursorVisible bool
+	HasCursor     bool // True if cursor position was captured
 }
 
 // AgentStoppedMsg signals an agent has stopped.

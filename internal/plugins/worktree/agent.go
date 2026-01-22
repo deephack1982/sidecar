@@ -721,6 +721,11 @@ func (p *Plugin) scheduleAgentPoll(worktreeName string, delay time.Duration) tea
 type AgentPollUnchangedMsg struct {
 	WorktreeName  string
 	CurrentStatus WorktreeStatus // For adaptive polling interval selection
+	// Cursor position captured atomically (even when content unchanged)
+	CursorRow     int
+	CursorCol     int
+	CursorVisible bool
+	HasCursor     bool
 }
 
 // handlePollAgent captures output from a tmux session asynchronously.
@@ -753,6 +758,15 @@ func (p *Plugin) handlePollAgent(worktreeName string) tea.Cmd {
 		}
 	}
 
+	// Capture cursor target for atomic cursor position query
+	var cursorTarget string
+	if interactiveCapture && p.interactiveState != nil {
+		cursorTarget = p.interactiveState.TargetPane
+		if cursorTarget == "" {
+			cursorTarget = p.interactiveState.TargetSession
+		}
+	}
+
 	// Return a tea.Cmd that spawns a goroutine for async capture
 	return func() tea.Msg {
 		var output string
@@ -772,14 +786,28 @@ func (p *Plugin) handlePollAgent(worktreeName string) tea.Cmd {
 			return pollAgentMsg{WorktreeName: worktreeName}
 		}
 
+		// Capture cursor position atomically with output when in interactive mode.
+		// This prevents race conditions where cursor position changes between
+		// output capture and cursor query.
+		var cursorRow, cursorCol int
+		var cursorVisible, hasCursor bool
+		if interactiveCapture && cursorTarget != "" {
+			cursorRow, cursorCol, cursorVisible, hasCursor = queryCursorPositionSync(cursorTarget)
+		}
+
 		output = trimCapturedOutput(output, maxBytes)
 
 		// Use hash-based change detection to skip processing if content unchanged
 		if outputBuf != nil && !outputBuf.Update(output) {
 			// Content unchanged - signal to schedule next poll with delay
+			// Still include cursor position since cursor can move without content changing
 			return AgentPollUnchangedMsg{
 				WorktreeName:  worktreeName,
 				CurrentStatus: currentStatus,
+				CursorRow:     cursorRow,
+				CursorCol:     cursorCol,
+				CursorVisible: cursorVisible,
+				HasCursor:     hasCursor,
 			}
 		}
 
@@ -802,10 +830,14 @@ func (p *Plugin) handlePollAgent(worktreeName string) tea.Cmd {
 		}
 
 		return AgentOutputMsg{
-			WorktreeName: worktreeName,
-			Output:       output,
-			Status:       status,
-			WaitingFor:   waitingFor,
+			WorktreeName:  worktreeName,
+			Output:        output,
+			Status:        status,
+			WaitingFor:    waitingFor,
+			CursorRow:     cursorRow,
+			CursorCol:     cursorCol,
+			CursorVisible: cursorVisible,
+			HasCursor:     hasCursor,
 		}
 	}
 }

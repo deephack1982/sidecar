@@ -332,7 +332,10 @@ func (b *OutputBuffer) Update(content string) bool {
 	// Content changed - update hash and replace lines
 	b.lastHash = hash
 	b.lastLen = len(content)
-	b.lines = strings.Split(content, "\n")
+	// Trim trailing newline before split to avoid spurious empty element.
+	// tmux capture-pane output ends with \n, which would create an extra empty
+	// element after split, causing cursor alignment to be off by one line.
+	b.lines = strings.Split(strings.TrimSuffix(content, "\n"), "\n")
 
 	// Trim to capacity (keep most recent lines)
 	if len(b.lines) > b.cap {
@@ -355,7 +358,8 @@ func (b *OutputBuffer) Write(content string) {
 	}
 
 	// Replace instead of append to avoid duplication
-	b.lines = strings.Split(content, "\n")
+	// Trim trailing newline before split (same as Update method)
+	b.lines = strings.Split(strings.TrimSuffix(content, "\n"), "\n")
 
 	// Trim to capacity (keep most recent lines)
 	if len(b.lines) > b.cap {

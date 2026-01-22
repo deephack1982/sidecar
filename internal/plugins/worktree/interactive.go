@@ -356,8 +356,8 @@ func (p *Plugin) enterInteractiveMode() tea.Cmd {
 
 	p.viewMode = ViewModeInteractive
 
-	// Trigger immediate poll for fresh content and initial cursor position query (td-648af4)
-	return tea.Batch(p.pollInteractivePane(), p.queryCursorPositionCmd())
+	// Trigger immediate poll for fresh content (cursor position is captured atomically with output)
+	return p.pollInteractivePane()
 }
 
 // calculatePreviewDimensions returns the content width and height for the preview pane.
@@ -781,6 +781,32 @@ func (p *Plugin) queryCursorPositionCmd() tea.Cmd {
 
 		return cursorPositionMsg{Row: row, Col: col, Visible: visible}
 	}
+}
+
+// queryCursorPositionSync synchronously queries cursor position for the given target.
+// Used to capture cursor position atomically with output in poll goroutines.
+// Returns row, col (0-indexed), visible, and ok (false if query failed).
+func queryCursorPositionSync(target string) (row, col int, visible, ok bool) {
+	if target == "" {
+		return 0, 0, false, false
+	}
+
+	cmd := exec.Command("tmux", "display-message", "-t", target,
+		"-p", "#{cursor_x},#{cursor_y},#{cursor_flag}")
+	output, err := cmd.Output()
+	if err != nil {
+		return 0, 0, false, false
+	}
+
+	parts := strings.Split(strings.TrimSpace(string(output)), ",")
+	if len(parts) < 2 {
+		return 0, 0, false, false
+	}
+
+	col, _ = strconv.Atoi(parts[0])
+	row, _ = strconv.Atoi(parts[1])
+	visible = len(parts) < 3 || parts[2] != "0"
+	return row, col, visible, true
 }
 
 // renderWithCursor overlays the cursor on content at the specified position.
