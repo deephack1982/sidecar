@@ -360,61 +360,14 @@ func (p *Plugin) Init(ctx *plugin.Context) error {
 	// Discover existing shell sessions for this project
 	p.initShellSessions()
 
-	// Register dynamic keybindings
+	// Register dynamic keybindings for modal contexts only.
+	// Main worktree-list and worktree-preview bindings are in bindings.go.
 	if ctx.Keymap != nil {
-		// Sidebar list context
-		ctx.Keymap.RegisterPluginBinding("n", "new-worktree", "worktree-list")
-		ctx.Keymap.RegisterPluginBinding("enter", "attach", "worktree-list")
-		ctx.Keymap.RegisterPluginBinding("D", "delete-worktree", "worktree-list")
-		ctx.Keymap.RegisterPluginBinding("p", "push", "worktree-list")
-		ctx.Keymap.RegisterPluginBinding("d", "show-diff", "worktree-list")
-		ctx.Keymap.RegisterPluginBinding("v", "toggle-view", "worktree-list")
-		ctx.Keymap.RegisterPluginBinding("l", "focus-right", "worktree-list")
-		ctx.Keymap.RegisterPluginBinding("right", "focus-right", "worktree-list")
-		ctx.Keymap.RegisterPluginBinding("\\", "toggle-sidebar", "worktree-list")
-		ctx.Keymap.RegisterPluginBinding("tab", "switch-pane", "worktree-list")
-		ctx.Keymap.RegisterPluginBinding("[", "prev-tab", "worktree-list")
-		ctx.Keymap.RegisterPluginBinding("]", "next-tab", "worktree-list")
-
-		// Task linking
-		ctx.Keymap.RegisterPluginBinding("t", "link-task", "worktree-list")
-
-		// Agent control bindings - register for both sidebar and preview pane contexts
-		ctx.Keymap.RegisterPluginBinding("s", "start-agent", "worktree-list")
-		ctx.Keymap.RegisterPluginBinding("s", "start-agent", "worktree-preview")
-		ctx.Keymap.RegisterPluginBinding("S", "stop-agent", "worktree-list")
-		ctx.Keymap.RegisterPluginBinding("S", "stop-agent", "worktree-preview")
-		ctx.Keymap.RegisterPluginBinding("y", "approve", "worktree-list")
-		ctx.Keymap.RegisterPluginBinding("y", "approve", "worktree-preview")
-		ctx.Keymap.RegisterPluginBinding("Y", "approve-all", "worktree-list")
-		ctx.Keymap.RegisterPluginBinding("Y", "approve-all", "worktree-preview")
-		ctx.Keymap.RegisterPluginBinding("N", "reject", "worktree-list")
-		ctx.Keymap.RegisterPluginBinding("N", "reject", "worktree-preview")
-
-		// Shell control binding (kill shell session)
-		ctx.Keymap.RegisterPluginBinding("K", "kill-shell", "worktree-list")
-
-		// Merge workflow binding
-		ctx.Keymap.RegisterPluginBinding("m", "merge-workflow", "worktree-list")
-
 		// Merge modal context
 		ctx.Keymap.RegisterPluginBinding("esc", "cancel", "worktree-merge")
 		ctx.Keymap.RegisterPluginBinding("enter", "continue", "worktree-merge")
 		ctx.Keymap.RegisterPluginBinding("up", "select-delete", "worktree-merge")
 		ctx.Keymap.RegisterPluginBinding("down", "select-keep", "worktree-merge")
-
-		// Preview pane context
-		ctx.Keymap.RegisterPluginBinding("h", "focus-left", "worktree-preview")
-		ctx.Keymap.RegisterPluginBinding("left", "focus-left", "worktree-preview")
-		ctx.Keymap.RegisterPluginBinding("esc", "focus-left", "worktree-preview")
-		ctx.Keymap.RegisterPluginBinding("tab", "switch-pane", "worktree-preview")
-		ctx.Keymap.RegisterPluginBinding("\\", "toggle-sidebar", "worktree-preview")
-		ctx.Keymap.RegisterPluginBinding("[", "prev-tab", "worktree-preview")
-		ctx.Keymap.RegisterPluginBinding("]", "next-tab", "worktree-preview")
-		ctx.Keymap.RegisterPluginBinding("v", "toggle-diff-view", "worktree-preview")
-		ctx.Keymap.RegisterPluginBinding("ctrl+d", "page-down", "worktree-preview")
-		ctx.Keymap.RegisterPluginBinding("ctrl+u", "page-up", "worktree-preview")
-		ctx.Keymap.RegisterPluginBinding("0", "reset-scroll", "worktree-preview")
 
 		// Create modal context
 		ctx.Keymap.RegisterPluginBinding("esc", "cancel", "worktree-create")
