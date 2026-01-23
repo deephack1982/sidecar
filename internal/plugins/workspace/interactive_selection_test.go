@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/marcus/sidecar/internal/mouse"
@@ -520,12 +521,12 @@ func TestInjectCharacterRangeBackground_Partial(t *testing.T) {
 
 	// "world" (cols 6-10) should have background, "hello " should not
 	selBg := getSelectionBgANSI()
-	if !containsSubstring(result, selBg) {
+	if !strings.Contains(result, selBg) {
 		t.Error("partial: result should contain selection background ANSI")
 	}
-	// Should contain a reset after the selection
-	if !containsSubstring(result, "\x1b[0m") {
-		t.Error("partial: result should contain ANSI reset")
+	// Should contain a background-only reset after the selection
+	if !strings.Contains(result, "\x1b[49m") {
+		t.Error("partial: result should contain background-only ANSI reset")
 	}
 }
 
@@ -776,15 +777,3 @@ func TestCharacterLevelDrag_DirectionReversal(t *testing.T) {
 	}
 }
 
-// helper
-func containsSubstring(s, sub string) bool {
-	return len(s) >= len(sub) && (s == sub || len(sub) == 0 ||
-		func() bool {
-			for i := 0; i+len(sub) <= len(s); i++ {
-				if s[i:i+len(sub)] == sub {
-					return true
-				}
-			}
-			return false
-		}())
-}

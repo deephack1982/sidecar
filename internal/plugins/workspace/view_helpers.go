@@ -189,7 +189,7 @@ func injectCharacterRangeBackground(line string, startCol, endCol int) string {
 				sb.WriteString(selBg)
 				inSelection = true
 			} else if !charInRange && inSelection {
-				sb.WriteString("\x1b[0m")
+				sb.WriteString("\x1b[49m") // reset background only, preserve foreground
 				inSelection = false
 			}
 
@@ -198,7 +198,7 @@ func injectCharacterRangeBackground(line string, startCol, endCol int) string {
 
 			// Check if we've passed the end of selection
 			if endCol >= 0 && cumWidth > endCol && inSelection {
-				sb.WriteString("\x1b[0m")
+				sb.WriteString("\x1b[49m") // reset background only, preserve foreground
 				inSelection = false
 			}
 		} else {
@@ -215,7 +215,7 @@ func injectCharacterRangeBackground(line string, startCol, endCol int) string {
 	}
 
 	if inSelection {
-		sb.WriteString("\x1b[0m")
+		sb.WriteString("\x1b[49m") // reset background only at end of line
 	}
 
 	return sb.String()
