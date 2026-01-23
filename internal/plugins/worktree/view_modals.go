@@ -1261,7 +1261,10 @@ func (p *Plugin) renderMergeModal(width, height int) string {
 	case MergeStepReviewDiff:
 		sb.WriteString(lipgloss.NewStyle().Bold(true).Render("Files Changed:"))
 		sb.WriteString("\n\n")
-		if p.mergeState.DiffSummary != "" {
+		if p.mergeState.StepStatus[MergeStepReviewDiff] == "running" {
+			sb.WriteString(dimText("Loading..."))
+			sb.WriteString("\n")
+		} else if p.mergeState.DiffSummary != "" {
 			// Truncate to fit modal
 			summaryLines := strings.Split(p.mergeState.DiffSummary, "\n")
 			maxLines := modalH - 15 // Account for header, progress, footer
@@ -1277,7 +1280,7 @@ func (p *Plugin) renderMergeModal(width, height int) string {
 				sb.WriteString("\n")
 			}
 		} else {
-			sb.WriteString(dimText("Loading..."))
+			sb.WriteString(dimText("No files changed"))
 			sb.WriteString("\n")
 		}
 		sb.WriteString("\n")
