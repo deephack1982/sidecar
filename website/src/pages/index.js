@@ -57,6 +57,14 @@ function TdPane() {
             <span className="sc-bullet sc-bulletBlue" />
             <span>td-j0k1l2 Update API docs</span>
           </div>
+          <div className="sc-item">
+            <span className="sc-bullet sc-bulletBlue" />
+            <span>td-m3n4o5 Refactor css</span>
+          </div>
+          <div className="sc-item">
+            <span className="sc-bullet sc-bulletPink" />
+            <span>td-p6q7r8 Update dependencies</span>
+          </div>
         </div>
       </div>
       <div className="sc-tdSection">
@@ -64,6 +72,7 @@ function TdPane() {
         <div style={{ fontSize: 10 }}>
           <div><span className="sc-lineYellow">00:39</span> <span className="sc-lineDim">td-a1b2c3</span> Started</div>
           <div><span className="sc-lineYellow">00:15</span> <span className="sc-lineDim">td-d4e5f6</span> Created</div>
+          <div><span className="sc-lineYellow">23:42</span> <span className="sc-lineDim">td-g7h8i9</span> Blocked</div>
         </div>
       </div>
     </>
@@ -85,8 +94,16 @@ function GitPane() {
             <span>jwt.go</span>
           </div>
           <div className="sc-item">
+            <span className="sc-lineGreen">M</span>
+            <span>api_test.go</span>
+          </div>
+          <div className="sc-item">
             <span className="sc-linePink">D</span>
             <span>old_auth.go</span>
+          </div>
+          <div className="sc-item">
+            <span className="sc-lineGreen">M</span>
+            <span>README.md</span>
           </div>
         </div>
         <p className="sc-sectionTitle" style={{ marginTop: 10 }}>Commits</p>
@@ -94,6 +111,10 @@ function GitPane() {
           <div className="sc-item">
             <span className="sc-lineDim">736a844</span>
             <span>Minor fixes</span>
+          </div>
+          <div className="sc-item">
+            <span className="sc-lineDim">8b2c9d1</span>
+            <span>Update deps</span>
           </div>
         </div>
       </div>
@@ -137,6 +158,14 @@ function FilesPane() {
           <div className="sc-item" style={{ paddingLeft: 20 }}>
             <span className="sc-bullet sc-bulletBlue" />
             <span>jwt.go</span>
+          </div>
+          <div className="sc-item" style={{ paddingLeft: 20 }}>
+            <span className="sc-bullet sc-bulletDim" />
+            <span>utils.go</span>
+          </div>
+          <div className="sc-item" style={{ paddingLeft: 20 }}>
+            <span className="sc-bullet sc-bulletDim" />
+            <span>config.go</span>
           </div>
           <div className="sc-item" style={{ paddingLeft: 12 }}>
             <span className="sc-lineDim">[&gt;]</span>
@@ -189,6 +218,10 @@ function ConversationsPane() {
             <span className="sc-bullet sc-bulletBlue" />
             <span>api-docs <span className="sc-lineYellow" style={{ fontSize: 9 }}>Claude</span></span>
           </div>
+          <div className="sc-item">
+            <span className="sc-bullet sc-bulletGreen" />
+            <span>docs-refactor <span className="sc-lineYellow" style={{ fontSize: 9 }}>Claude</span></span>
+          </div>
         </div>
       </div>
       <div className="sc-paneMain">
@@ -202,6 +235,7 @@ function ConversationsPane() {
           <div style={{ height: 2 }} />
           <div><span className="sc-lineYellow">-&gt;</span> Read middleware.go</div>
           <div><span className="sc-lineYellow">-&gt;</span> Edit jwt.go</div>
+          <div><span className="sc-lineYellow">-&gt;</span> Read api_test.go</div>
           <div style={{ height: 2 }} />
           <div className="sc-lineDim">12.4k tokens | 24m</div>
         </div>
@@ -231,6 +265,10 @@ function WorktreesPane() {
           <div className="sc-item">
             <span className="sc-bullet sc-bulletBlue" />
             <span>docs/update</span>
+          </div>
+          <div className="sc-item">
+            <span className="sc-bullet sc-bulletDim" />
+            <span>chore/deps</span>
           </div>
         </div>
       </div>
@@ -747,20 +785,18 @@ export default function Home() {
     >
       <header className="sc-hero">
         <div className="container">
-          <div className="sc-heroInner">
-            <div>
-              <h1 className="sc-title">
-                <span className="sc-titleBrand">Sidecar</span>
-                <span className="sc-titleTagline">You might never open your editor again.</span>
-              </h1>
+          <div className="sc-heroHeader">
+            <h1 className="sc-title">
+              <span className="sc-titleBrand">Sidecar</span>
+              <span className="sc-titleTagline">You might never open your editor again.</span>
+            </h1>
 
-              <p className="sc-subtitle">
-                AI agents write your code. Sidecar keeps you in the terminal for everything else:
-                planning tasks with <a href="https://github.com/marcus/td" className="sc-inlineLink">td</a>, reviewing diffs, staging commits, managing worktrees. The whole development loop, one interface.
-              </p>
+            <p className="sc-subtitle">
+              AI agents write your code. Sidecar keeps you in the terminal for everything else:
+              planning tasks with <a href="https://github.com/marcus/td" className="sc-inlineLink">td</a>, reviewing diffs, staging commits, managing worktrees. The whole development loop, one interface.
+            </p>
 
-              <div style={{ height: 32 }} />
-
+            <div className="sc-heroCta">
               <div className="sc-actions">
                 <Link className="sc-btn sc-btnPrimary" to="/docs/intro">
                   Get started <span className="sc-codeInline">curl | bash</span>
@@ -773,9 +809,7 @@ export default function Home() {
                 </a>
               </div>
 
-              <div style={{ height: 28 }} />
-
-              <div className="sc-codeBlock sc-installBlock" aria-label="Quick install snippet">
+              <div className="sc-codeBlock sc-installBlock sc-installHero" aria-label="Quick install snippet">
                 <div className="sc-installHeader">
                   <span className="sc-lineDim">Quick install</span>
                   <CopyButton text={INSTALL_COMMAND} />
@@ -790,13 +824,15 @@ export default function Home() {
                 </div>
               </div>
             </div>
-
-            <div>
-              <Frame activeTab={activeTab} onTabChange={handleTabChange} />
-            </div>
           </div>
         </div>
       </header>
+
+      <section className="sc-demoSection">
+        <div className="container">
+          <Frame activeTab={activeTab} onTabChange={handleTabChange} />
+        </div>
+      </section>
 
       <main className="sc-main">
         {/* Feature Cards */}

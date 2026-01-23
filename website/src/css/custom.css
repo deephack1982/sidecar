@@ -87,8 +87,8 @@ html[data-theme='dark'][data-custom-theme='nord'] {
 
   --sc-panel: #2E3440;
   --sc-panel-2: #3B4252;
-  --sc-border: #4C566A; /* Polar Night 4 */
-  --sc-border-2: #434C5E; /* Polar Night 3 */
+  --sc-border: rgba(76, 86, 106, 0.3);    /* Polar Night 4 */
+  --sc-border-2: rgba(67, 76, 94, 0.3);   /* Polar Night 3 */
   --sc-glow: rgba(136, 192, 208, 0.1);
 }
 
@@ -117,8 +117,8 @@ html[data-theme='dark'][data-custom-theme='solarized-dark'] {
 
   --sc-panel: #002B36;
   --sc-panel-2: #073642;
-  --sc-border: #586E75; /* Base01 */
-  --sc-border-2: #657B83; /* Base00 */
+  --sc-border: rgba(88, 110, 117, 0.25);   /* Base01 */
+  --sc-border-2: rgba(101, 123, 131, 0.25); /* Base00 */
   --sc-glow: rgba(38, 139, 210, 0.1);
 }
 
@@ -147,8 +147,8 @@ html[data-theme='dark'][data-custom-theme='tokyo-night'] {
 
   --sc-panel: #1A1B26;
   --sc-panel-2: #24283B;
-  --sc-border: #565F89;
-  --sc-border-2: #414868;
+  --sc-border: rgba(86, 95, 137, 0.3);
+  --sc-border-2: rgba(65, 72, 104, 0.3);
   --sc-glow: rgba(122, 162, 247, 0.15);
 }
 
@@ -267,18 +267,49 @@ a:hover {
   pointer-events: none;
 }
 
-.sc-heroInner {
-  position: relative;
-  display: grid;
-  grid-template-columns: 1.05fr 1fr;
-  gap: 28px;
-  align-items: start;
+.sc-heroHeader {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
 }
 
+.sc-heroCta {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+  width: 100%;
+}
+
+.sc-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+  margin-top: 6px;
+}
+
+.sc-installHero {
+  width: 100%;
+  max-width: 600px;
+  text-align: left;
+}
+
+.sc-demoSection {
+  padding: 0 0 24px;
+  position: relative;
+}
+
+.sc-demoSection .container {
+  max-width: 1080px;
+}
+
+/* Ensure demo section merges visually with main features if desired, 
+   or give it distinct spacing. Since frame has a shadow, padding is good. */
+
 @media (max-width: 996px) {
-  .sc-heroInner {
-    grid-template-columns: 1fr;
-  }
+  /* Adjustments if needed */
 }
 
 .sc-title {
@@ -288,6 +319,7 @@ a:hover {
   margin: 0 0 18px;
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 8px;
 }
 
@@ -320,10 +352,11 @@ a:hover {
 
 .sc-subtitle {
   margin: 0 0 24px;
-  font-size: 15px;
-  line-height: 1.55;
+  font-size: 16px;
+  line-height: 1.6;
   color: var(--ifm-font-color-secondary);
-  max-width: 58ch;
+  max-width: 64ch;
+  text-align: center;
 }
 
 .sc-badges {
@@ -469,7 +502,7 @@ a:hover {
 .sc-frameBody {
   display: grid;
   grid-template-columns: 28% 72%;
-  min-height: 340px;
+  min-height: 450px;
 }
 
 @media (max-width: 996px) {
@@ -484,7 +517,7 @@ a:hover {
   flex-direction: column;
   gap: 6px;
   padding: 8px;
-  min-height: 340px;
+  min-height: 450px;
 }
 
 .sc-frameBodyStacked .sc-tdSection {
@@ -611,7 +644,7 @@ a:hover {
 /* ---------- Feature grid ---------- */
 
 .sc-grid {
-  padding: 26px 0 46px;
+  padding: 12px 0 46px;
 }
 
 .sc-gridHint {
