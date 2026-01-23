@@ -6,6 +6,30 @@ import (
 	"github.com/marcus/sidecar/internal/state"
 )
 
+// isModalViewMode returns true when a modal overlay is active (not List, Kanban, or Interactive).
+func (p *Plugin) isModalViewMode() bool {
+	switch p.viewMode {
+	case ViewModeList, ViewModeKanban, ViewModeInteractive:
+		return false
+	default:
+		return true
+	}
+}
+
+// isBackgroundRegion returns true for regions registered by renderListView()
+// that should not respond to mouse events when a modal is open.
+func isBackgroundRegion(regionID string) bool {
+	switch regionID {
+	case regionSidebar, regionPreviewPane, regionPaneDivider,
+		regionWorktreeItem, regionPreviewTab,
+		regionCreateWorktreeButton, regionShellsPlusButton, regionWorkspacesPlusButton,
+		regionKanbanCard, regionKanbanColumn, regionViewToggle:
+		return true
+	default:
+		return false
+	}
+}
+
 // handleMouse processes mouse input.
 func (p *Plugin) handleMouse(msg tea.MouseMsg) tea.Cmd {
 	action := p.mouseHandler.HandleMouse(msg)
@@ -31,6 +55,11 @@ func (p *Plugin) handleMouse(msg tea.MouseMsg) tea.Cmd {
 
 // handleMouseHover handles hover events for visual feedback.
 func (p *Plugin) handleMouseHover(action mouse.MouseAction) tea.Cmd {
+	// Guard: absorb background region hovers when a modal is open (td-f63097).
+	if p.isModalViewMode() && action.Region != nil && isBackgroundRegion(action.Region.ID) {
+		return nil
+	}
+
 	// Handle hover in modals that have button hover states
 	switch p.viewMode {
 	case ViewModeCreate:
@@ -205,6 +234,13 @@ func (p *Plugin) handleMouseHover(action mouse.MouseAction) tea.Cmd {
 // handleMouseClick handles single click events.
 func (p *Plugin) handleMouseClick(action mouse.MouseAction) tea.Cmd {
 	if action.Region == nil {
+		return nil
+	}
+
+	// Guard: absorb background region clicks when a modal is open (td-f63097).
+	// Without this, clicks on empty modal space fall through to background regions
+	// registered by renderListView(), causing enterInteractiveMode/pane switches.
+	if p.isModalViewMode() && isBackgroundRegion(action.Region.ID) {
 		return nil
 	}
 
@@ -557,8 +593,8 @@ func (p *Plugin) handleMouseClick(action mouse.MouseAction) tea.Cmd {
 
 // handleMouseDoubleClick handles double-click events.
 func (p *Plugin) handleMouseDoubleClick(action mouse.MouseAction) tea.Cmd {
-	// Ignore double-clicks when a modal is open (except interactive mode)
-	if p.viewMode != ViewModeList && p.viewMode != ViewModeKanban && p.viewMode != ViewModeInteractive {
+	// Guard: ignore double-clicks when a modal is open (td-f63097).
+	if p.isModalViewMode() {
 		return nil
 	}
 	if action.Region == nil {
@@ -635,6 +671,11 @@ func (p *Plugin) handleMouseDoubleClick(action mouse.MouseAction) tea.Cmd {
 
 // handleMouseScroll handles scroll wheel events.
 func (p *Plugin) handleMouseScroll(action mouse.MouseAction) tea.Cmd {
+	// Guard: absorb background region scrolls when a modal is open (td-f63097).
+	if p.isModalViewMode() && (action.Region == nil || isBackgroundRegion(action.Region.ID)) {
+		return nil
+	}
+
 	delta := action.Delta
 	if action.Type == mouse.ActionScrollUp {
 		delta = -1
@@ -677,6 +718,11 @@ func (p *Plugin) handleMouseScroll(action mouse.MouseAction) tea.Cmd {
 
 // handleMouseHorizontalScroll handles horizontal scroll events in the preview pane.
 func (p *Plugin) handleMouseHorizontalScroll(action mouse.MouseAction) tea.Cmd {
+	// Guard: absorb horizontal scroll when a modal is open (td-f63097).
+	if p.isModalViewMode() {
+		return nil
+	}
+
 	// Only horizontal scroll in preview pane
 	if action.Region == nil {
 		// No hit region - use X position to determine if in preview pane
@@ -794,6 +840,11 @@ func (p *Plugin) scrollKanban(delta int) tea.Cmd {
 
 // handleMouseDrag handles drag motion events.
 func (p *Plugin) handleMouseDrag(action mouse.MouseAction) tea.Cmd {
+	// Guard: prevent pane resizing while a modal is open (td-f63097).
+	if p.isModalViewMode() {
+		return nil
+	}
+
 	switch p.mouseHandler.DragRegion() {
 	case regionPaneDivider:
 		// Calculate new sidebar width based on drag
@@ -819,9 +870,15 @@ func (p *Plugin) handleMouseDrag(action mouse.MouseAction) tea.Cmd {
 
 // handleMouseDragEnd handles the end of a drag operation.
 func (p *Plugin) handleMouseDragEnd() tea.Cmd {
+	// Guard: ignore drag-end when a modal is open (td-f63097).
+	if p.isModalViewMode() {
+		return nil
+	}
+
 	if p.interactiveSelectionActive {
 		return p.finishInteractiveSelection()
 	}
+
 	// Persist sidebar width
 	_ = state.SetWorkspaceSidebarWidth(p.sidebarWidth)
 	if p.viewMode == ViewModeInteractive && p.interactiveState != nil && p.interactiveState.Active {
