@@ -753,6 +753,12 @@ func (p *Plugin) handleInteractiveKeys(msg tea.KeyMsg) tea.Cmd {
 	// Update last key time for polling decay
 	p.interactiveState.LastKeyTime = time.Now()
 
+	// Snap back to live view if scrolled up, so user can see what they're typing
+	if p.previewOffset > 0 {
+		p.previewOffset = 0
+		p.autoScrollOutput = true
+	}
+
 	sessionName := p.interactiveState.TargetSession
 
 	// Check for paste (multi-character input with newlines or long text)
@@ -833,70 +839,24 @@ func (p *Plugin) handleEscapeTimer() tea.Cmd {
 	return p.pollInteractivePaneImmediate()
 }
 
-// forwardScrollToTmux sends scroll wheel events to the tmux pane.
-// Returns a tea.Cmd for any async operations needed.
-// Scroll up (delta < 0) sends PPage (Page Up), scroll down (delta > 0) sends NPage (Page Down).
-// For smoother scrolling, smaller scroll increments use arrow keys.
-func (p *Plugin) forwardScrollToTmux(delta int, x, y int) tea.Cmd {
-	if p.interactiveState == nil || !p.interactiveState.Active {
-		return nil
-	}
-
-	sessionName := p.interactiveState.TargetSession
-
-	if p.interactiveState.MouseReportingEnabled {
-		col, row, ok := p.interactiveMouseCoords(x, y)
-		if !ok {
-			return nil
-		}
-		button := 64 // wheel up
-		if delta > 0 {
-			button = 65 // wheel down
-		}
-		if err := sendSGRMouse(sessionName, button, col, row, false); err != nil {
-			p.exitInteractiveMode()
-			if isSessionDeadError(err) {
-				return func() tea.Msg { return InteractiveSessionDeadMsg{} }
-			}
-			return nil
-		}
+// forwardScrollToTmux scrolls through the captured pane output using previewOffset.
+// No tmux subprocesses needed — we scroll through the already-captured 600 lines of scrollback.
+// Scroll up (delta < 0) pauses auto-scroll, scroll down (delta > 0) moves toward live output.
+func (p *Plugin) forwardScrollToTmux(delta int) tea.Cmd {
+	if delta < 0 {
+		// Scroll up: pause auto-scroll, show older content
+		p.autoScrollOutput = false
+		p.previewOffset++
 	} else {
-		// Fallback to key-based scrolling when mouse reporting is disabled.
-		var key string
-		var count int
-		if delta < 0 {
-			count = -delta
-			if count >= 3 {
-				key = "PPage"
-				count = 1
-			} else {
-				key = "Up"
-			}
-		} else {
-			count = delta
-			if count >= 3 {
-				key = "NPage"
-				count = 1
-			} else {
-				key = "Down"
-			}
-		}
-
-		for i := 0; i < count; i++ {
-			if err := sendKeyToTmux(sessionName, key); err != nil {
-				p.exitInteractiveMode()
-				if isSessionDeadError(err) {
-					return func() tea.Msg { return InteractiveSessionDeadMsg{} }
-				}
-				return nil
+		// Scroll down: show newer content, resume auto-scroll at bottom
+		if p.previewOffset > 0 {
+			p.previewOffset--
+			if p.previewOffset == 0 {
+				p.autoScrollOutput = true
 			}
 		}
 	}
-
-	// Update last key time and poll immediately for better responsiveness (td-babfd9)
-	p.interactiveState.LastKeyTime = time.Now()
-
-	return p.pollInteractivePaneImmediate()
+	return nil
 }
 
 // forwardClickToTmux sends a mouse click to the tmux pane.

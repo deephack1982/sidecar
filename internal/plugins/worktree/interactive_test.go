@@ -828,21 +828,27 @@ func TestGetInteractiveExitKey_VariousKeys(t *testing.T) {
 	}
 }
 
-// TestForwardScrollToTmux_NilState tests that scroll forwarding handles nil state
-func TestForwardScrollToTmux_NilState(t *testing.T) {
-	p := &Plugin{interactiveState: nil}
-	cmd := p.forwardScrollToTmux(-1, 0, 0)
-	if cmd != nil {
-		t.Error("expected nil cmd when interactiveState is nil")
+// TestForwardScrollToTmux_ScrollUp tests that scroll up pauses auto-scroll
+func TestForwardScrollToTmux_ScrollUp(t *testing.T) {
+	p := &Plugin{autoScrollOutput: true, previewOffset: 0}
+	p.forwardScrollToTmux(-1)
+	if p.autoScrollOutput {
+		t.Error("expected autoScrollOutput=false after scroll up")
+	}
+	if p.previewOffset != 1 {
+		t.Errorf("expected previewOffset=1, got %d", p.previewOffset)
 	}
 }
 
-// TestForwardScrollToTmux_InactiveState tests that scroll forwarding handles inactive state
-func TestForwardScrollToTmux_InactiveState(t *testing.T) {
-	p := &Plugin{interactiveState: &InteractiveState{Active: false}}
-	cmd := p.forwardScrollToTmux(1, 0, 0)
-	if cmd != nil {
-		t.Error("expected nil cmd when interactive mode is inactive")
+// TestForwardScrollToTmux_ScrollDown tests that scroll down resumes auto-scroll at bottom
+func TestForwardScrollToTmux_ScrollDown(t *testing.T) {
+	p := &Plugin{autoScrollOutput: false, previewOffset: 1}
+	p.forwardScrollToTmux(1)
+	if !p.autoScrollOutput {
+		t.Error("expected autoScrollOutput=true after scrolling to bottom")
+	}
+	if p.previewOffset != 0 {
+		t.Errorf("expected previewOffset=0, got %d", p.previewOffset)
 	}
 }
 
