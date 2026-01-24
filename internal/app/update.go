@@ -1302,11 +1302,22 @@ func (m *Model) focusProjectAddInput() {
 
 // handleProjectAddMouse handles mouse events for the project add sub-mode.
 func (m Model) handleProjectAddMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
-	// Calculate modal dimensions (same approach as project switcher)
-	// Add form: title(2) + name label(1) + name input(1) + gap(1) + path label(1) + path input(1) + gap(1) + error?(1) + buttons(1) = ~10-11 lines
-	modalContentLines := 11
+	// Calculate modal dimensions and button positions
+	// Each bordered input takes 2 lines (Border(NormalBorder) + Padding(0,1))
+	// Line 0: "Add Project"
+	// Line 1: blank
+	// Line 2: "Name:"
+	// Lines 3-4: name input (bordered, 2 lines)
+	// Line 5: blank
+	// Line 6: "Path:"
+	// Lines 7-8: path input (bordered, 2 lines)
+	// WITHOUT error: Line 9: blank, Line 10: buttons, Line 11: blank, Line 12: help
+	// WITH error: Line 9: blank, Line 10: error, Line 11: blank, Line 12: buttons, Line 13: blank, Line 14: help
+	modalContentLines := 13 // Without error
+	buttonRow := 10         // Buttons on line 10 (0-indexed) without error
 	if m.projectAddError != "" {
-		modalContentLines++
+		modalContentLines = 15
+		buttonRow = 12 // Buttons shift down 2 lines when error is shown
 	}
 	modalHeight := modalContentLines + 4 // ModalBox padding/border
 	modalWidth := 50
@@ -1318,9 +1329,9 @@ func (m Model) handleProjectAddMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	if msg.X >= modalX && msg.X < modalX+modalWidth &&
 		msg.Y >= modalY && msg.Y < modalY+modalHeight {
 
-		// Calculate button positions (at bottom of modal content)
-		// Buttons are on the last content line before bottom border/padding
-		buttonLineY := modalY + 2 + modalContentLines - 2 // border/padding + content - buttons offset
+		// Calculate button Y position
+		// Content starts at modalY + 2 (border + padding)
+		buttonLineY := modalY + 2 + buttonRow
 
 		if msg.Y == buttonLineY {
 			// Rough button X positions within the modal
