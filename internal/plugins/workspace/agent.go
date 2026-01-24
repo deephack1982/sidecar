@@ -916,6 +916,9 @@ func capturePaneDirectWithJoin(sessionName string, joinWrapped bool) (string, er
 		return "", fmt.Errorf("capture-pane: timeout after %s", tmuxCaptureTimeout)
 	}
 	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok && len(exitErr.Stderr) > 0 {
+			return "", fmt.Errorf("capture-pane: %s", strings.TrimSpace(string(exitErr.Stderr)))
+		}
 		return "", fmt.Errorf("capture-pane: %w", err)
 	}
 	return string(output), nil
