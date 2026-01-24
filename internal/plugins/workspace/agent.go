@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/marcus/sidecar/internal/features"
 )
 
 // paneCacheEntry holds cached capture output with timestamp
@@ -776,6 +777,20 @@ func (p *Plugin) handlePollAgent(worktreeName string) tea.Cmd {
 		}
 	}
 
+	// When feature is enabled, use direct capture without -J for the selected worktree.
+	// This ensures the preview shows content wrapped at the pane width (which is resized
+	// to match the preview). We also resize inline to avoid races with async resize cmds.
+	directCapture := false
+	var resizeTarget string
+	var previewWidth, previewHeight int
+	if !interactiveCapture && features.IsEnabled(features.TmuxInteractiveInput.Name) {
+		if selected := p.selectedWorktree(); selected != nil && selected.Name == worktreeName {
+			directCapture = true
+			previewWidth, previewHeight = p.calculatePreviewDimensions()
+			resizeTarget = p.previewResizeTarget()
+		}
+	}
+
 	// Capture cursor target for atomic cursor position query
 	var cursorTarget string
 	if interactiveCapture && p.interactiveState != nil {
@@ -787,9 +802,16 @@ func (p *Plugin) handlePollAgent(worktreeName string) tea.Cmd {
 
 	// Return a tea.Cmd that spawns a goroutine for async capture
 	return func() tea.Msg {
+		// Ensure pane is at preview width before capturing (avoids race with async resize)
+		if directCapture && resizeTarget != "" {
+			if w, h, ok := queryPaneSize(resizeTarget); !ok || w != previewWidth || h != previewHeight {
+				p.resizeTmuxPane(resizeTarget, previewWidth, previewHeight)
+			}
+		}
+
 		var output string
 		var err error
-		if interactiveCapture {
+		if interactiveCapture || directCapture {
 			output, err = capturePaneDirectWithJoin(sessionName, false)
 		} else {
 			output, err = capturePane(sessionName)
@@ -907,8 +929,11 @@ func capturePane(sessionName string) (string, error) {
 }
 
 // capturePaneDirect captures a single pane without caching.
+// When tmux_interactive_input is enabled, panes are resized to match preview width,
+// so we skip -J to preserve tmux's native wrapping (matches interactive mode rendering).
 func capturePaneDirect(sessionName string) (string, error) {
-	return capturePaneDirectWithJoin(sessionName, true)
+	joinWrapped := !features.IsEnabled(features.TmuxInteractiveInput.Name)
+	return capturePaneDirectWithJoin(sessionName, joinWrapped)
 }
 
 // capturePaneDirectWithJoin captures a single pane without caching.
@@ -956,12 +981,19 @@ func batchCaptureActiveSessions() (map[string]string, error) {
 		quotedSessions = append(quotedSessions, fmt.Sprintf("%q", s))
 	}
 
+	// When tmux_interactive_input is enabled, panes are resized to match preview width,
+	// so skip -J to preserve tmux's native wrapping (matches interactive mode rendering).
+	captureArgs := "-p -e -J"
+	if features.IsEnabled(features.TmuxInteractiveInput.Name) {
+		captureArgs = "-p -e"
+	}
+
 	script := fmt.Sprintf(`
 for session in %s; do
     echo "===SIDECAR_SESSION:$session==="
-    tmux capture-pane -p -e -J -S -%d -t "$session" 2>/dev/null
+    tmux capture-pane %s -S -%d -t "$session" 2>/dev/null
 done
-`, strings.Join(quotedSessions, " "), captureLineCount)
+`, strings.Join(quotedSessions, " "), captureArgs, captureLineCount)
 
 	ctx, cancel := context.WithTimeout(context.Background(), tmuxBatchCaptureTimeout)
 	defer cancel()

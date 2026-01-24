@@ -12,6 +12,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/marcus/sidecar/internal/features"
 	"github.com/marcus/sidecar/internal/state"
 )
 
@@ -419,6 +420,19 @@ func (p *Plugin) pollShellSessionByName(tmuxName string) tea.Cmd {
 		selectedShell != nil &&
 		selectedShell.TmuxName == tmuxName
 
+	// When feature is enabled, skip -J for the selected shell so content wraps
+	// at the pane width (matching interactive mode). Resize inline to avoid races.
+	directCapture := false
+	var resizeTarget string
+	var previewWidth, previewHeight int
+	if !interactiveCapture && features.IsEnabled(features.TmuxInteractiveInput.Name) {
+		if selectedShell != nil && selectedShell.TmuxName == tmuxName {
+			directCapture = true
+			previewWidth, previewHeight = p.calculatePreviewDimensions()
+			resizeTarget = p.previewResizeTarget()
+		}
+	}
+
 	// Capture cursor target for atomic cursor position query
 	var cursorTarget string
 	if interactiveCapture && p.interactiveState != nil {
@@ -429,9 +443,17 @@ func (p *Plugin) pollShellSessionByName(tmuxName string) tea.Cmd {
 	}
 
 	return func() tea.Msg {
+		// Ensure pane is at preview width before capturing (avoids race with async resize)
+		if directCapture && resizeTarget != "" {
+			if w, h, ok := queryPaneSize(resizeTarget); !ok || w != previewWidth || h != previewHeight {
+				p.resizeTmuxPane(resizeTarget, previewWidth, previewHeight)
+			}
+		}
+
 		// Use direct capture for shells (no batch), preserving wraps in interactive mode.
 		// Shell sessions have prefix "sidecar-sh-" not "sidecar-ws-" so batch capture skips them.
-		output, err := capturePaneDirectWithJoin(tmuxName, !interactiveCapture)
+		joinWrapped := !interactiveCapture && !directCapture
+		output, err := capturePaneDirectWithJoin(tmuxName, joinWrapped)
 		if err != nil {
 			// Capture error - check error message to determine if session is dead
 			// Avoid synchronous sessionExists() call which would block (td-c2961e)

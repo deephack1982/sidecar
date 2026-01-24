@@ -540,9 +540,6 @@ func (p *Plugin) enterInteractiveMode() tea.Cmd {
 		target = sessionName // Fall back to session name if pane ID not available
 	}
 	if target != "" {
-		// Reset scroll offsets so cursor alignment matches the visible pane (td-43d37b)
-		p.previewOffset = 0
-		p.autoScrollOutput = true
 		previewWidth, previewHeight := p.calculatePreviewDimensions()
 		p.resizeTmuxPane(target, previewWidth, previewHeight)
 	}
