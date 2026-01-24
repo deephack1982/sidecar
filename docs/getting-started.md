@@ -83,6 +83,16 @@ go install github.com/marcus/sidecar/cmd/sidecar@latest
 go install github.com/marcus/td@latest
 ```
 
+## Quick Start
+
+After installation, run from any project directory:
+
+```bash
+sidecar
+```
+
+**Tip:** You can run two sidecar instances side-by-side (e.g. in a split terminal) to create a dashboard view. This allows you to monitor tasks (TD Monitor) in one pane while reviewing code changes (Git Status) or managing parallel work (Workspaces) in another.
+
 ## Checking for Updates
 
 In sidecar, press `!` to open diagnostics. You'll see version info for installed tools and update commands if updates are available.

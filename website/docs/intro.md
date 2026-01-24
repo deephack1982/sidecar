@@ -63,6 +63,8 @@ Split your terminal horizontally: agent on the left, sidecar on the right.
 - Browse and edit code yourself in File Browser
 - Launch parallel agents in workspaces for multi-branch work
 
+**Tip:** You can run two sidecar instances side-by-side to create a dashboard view. For example, keep one on the TD plugin and the other on Git or Workspaces to monitor tasks and code changes simultaneously.
+
 This setup provides full transparency into agent actions without breaking focus.
 
 ## Core Plugins

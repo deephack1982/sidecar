@@ -48,6 +48,8 @@ Split your terminal horizontally: run your coding agent (Claude Code, Cursor, et
 └─────────────────────────────┴─────────────────────┘
 ```
 
+**Tip:** You can run two sidecar instances side-by-side to create a dashboard view. For example, keep one on the [Tasks] plugin and the other on [Git] or [Workspaces] to monitor everything at once.
+
 As the agent works, you can:
 
 - Watch tasks move through the workflow in TD Monitor
