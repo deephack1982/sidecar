@@ -728,6 +728,26 @@ func applySingleOverride(palette *ColorPalette, key, value string) {
 		palette.MarkdownTheme = value
 	case "tabStyle":
 		palette.TabStyle = value
+	case "dangerLight":
+		palette.DangerLight = value
+	case "dangerDark":
+		palette.DangerDark = value
+	case "dangerBright":
+		palette.DangerBright = value
+	case "dangerHover":
+		palette.DangerHover = value
+	case "textInverse":
+		palette.TextInverse = value
+	case "blameAge1":
+		palette.BlameAge1 = value
+	case "blameAge2":
+		palette.BlameAge2 = value
+	case "blameAge3":
+		palette.BlameAge3 = value
+	case "blameAge4":
+		palette.BlameAge4 = value
+	case "blameAge5":
+		palette.BlameAge5 = value
 	}
 }
 
