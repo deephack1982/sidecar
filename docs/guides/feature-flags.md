@@ -46,7 +46,7 @@ CLI overrides take precedence over config file settings.
 
 | Feature | Default | Description |
 |---------|---------|-------------|
-| `tmux_interactive_input` | off | Enable write support for tmux panes |
+| `tmux_interactive_input` | on | Enable write support for tmux panes |
 
 ## For Developers
 

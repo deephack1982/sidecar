@@ -23,7 +23,7 @@ var (
 	// TmuxInteractiveInput enables write support for tmux panes.
 	TmuxInteractiveInput = Feature{
 		Name:        "tmux_interactive_input",
-		Default:     false,
+		Default:     true,
 		Description: "Enable write support for tmux panes",
 	}
 )
