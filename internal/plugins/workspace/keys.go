@@ -1185,9 +1185,41 @@ func (p *Plugin) handleMergeKeys(msg tea.KeyMsg) tea.Cmd {
 		return nil
 	}
 
+	// Ensure modal is built for key handling
+	p.ensureMergeModal()
+
+	// For PostMergeConfirmation step, delegate to modal library for Tab/Enter/Space
+	if p.mergeState.Step == MergeStepPostMergeConfirmation && p.mergeModal != nil {
+		action, cmd := p.mergeModal.HandleKey(msg)
+		switch action {
+		case "cancel":
+			p.cancelMergeWorkflow()
+			p.clearMergeModal()
+			return nil
+		case mergeCleanUpButtonID:
+			return p.advanceMergeStep()
+		case mergeSkipButtonID:
+			p.mergeState.DeleteLocalWorktree = false
+			p.mergeState.DeleteLocalBranch = false
+			p.mergeState.DeleteRemoteBranch = false
+			p.mergeState.PullAfterMerge = false
+			return p.advanceMergeStep()
+		case "":
+			// Modal handled internally (Tab cycling, checkbox toggle, etc.)
+			if cmd != nil {
+				return cmd
+			}
+			// Fall through to custom key handling
+		default:
+			// Unhandled action from modal
+			return cmd
+		}
+	}
+
 	switch msg.String() {
 	case "esc", "q":
 		p.cancelMergeWorkflow()
+		p.clearMergeModal()
 		return nil
 
 	case "enter":
@@ -1203,87 +1235,32 @@ func (p *Plugin) handleMergeKeys(msg tea.KeyMsg) tea.Cmd {
 			// Manual check for merge status
 			return p.checkPRMerged(p.mergeState.Worktree)
 		case MergeStepPostMergeConfirmation:
-			// Focus 0-3 = checkboxes, 4 = confirm button, 5 = skip all button
-			switch p.mergeState.ConfirmationFocus {
-			case 0:
-				p.mergeState.DeleteLocalWorktree = !p.mergeState.DeleteLocalWorktree
-				return nil
-			case 1:
-				p.mergeState.DeleteLocalBranch = !p.mergeState.DeleteLocalBranch
-				return nil
-			case 2:
-				p.mergeState.DeleteRemoteBranch = !p.mergeState.DeleteRemoteBranch
-				return nil
-			case 3:
-				p.mergeState.PullAfterMerge = !p.mergeState.PullAfterMerge
-				return nil
-			case 5:
-				// Skip All button - uncheck everything
-				p.mergeState.DeleteLocalWorktree = false
-				p.mergeState.DeleteLocalBranch = false
-				p.mergeState.DeleteRemoteBranch = false
-				p.mergeState.PullAfterMerge = false
-			}
-			// Focus 4 (Confirm) or 5 (Skip All) - advance to next step
-			return p.advanceMergeStep()
+			// Already handled by modal library above
+			return nil
 		case MergeStepDone:
 			// Close modal
 			p.cancelMergeWorkflow()
+			p.clearMergeModal()
 		}
 
 	case "up", "k":
 		if p.mergeState.Step == MergeStepMergeMethod {
 			// Select PR workflow (option 0)
 			p.mergeState.MergeMethodOption = 0
+			p.clearMergeModal() // Rebuild with new selection
 		} else if p.mergeState.Step == MergeStepWaitingMerge {
 			// Select "Delete worktree after merge"
 			p.mergeState.DeleteAfterMerge = true
-		} else if p.mergeState.Step == MergeStepPostMergeConfirmation {
-			// Navigate checkboxes/buttons
-			if p.mergeState.ConfirmationFocus > 0 {
-				p.mergeState.ConfirmationFocus--
-			}
 		}
 
 	case "down", "j":
 		if p.mergeState.Step == MergeStepMergeMethod {
 			// Select direct merge (option 1)
 			p.mergeState.MergeMethodOption = 1
+			p.clearMergeModal() // Rebuild with new selection
 		} else if p.mergeState.Step == MergeStepWaitingMerge {
 			// Select "Keep worktree"
 			p.mergeState.DeleteAfterMerge = false
-		} else if p.mergeState.Step == MergeStepPostMergeConfirmation {
-			// Navigate checkboxes/buttons (0-3=checkboxes, 4=confirm, 5=skip)
-			if p.mergeState.ConfirmationFocus < 5 {
-				p.mergeState.ConfirmationFocus++
-			}
-		}
-
-	case " ":
-		// Space toggles checkboxes in confirmation step
-		if p.mergeState.Step == MergeStepPostMergeConfirmation {
-			switch p.mergeState.ConfirmationFocus {
-			case 0:
-				p.mergeState.DeleteLocalWorktree = !p.mergeState.DeleteLocalWorktree
-			case 1:
-				p.mergeState.DeleteLocalBranch = !p.mergeState.DeleteLocalBranch
-			case 2:
-				p.mergeState.DeleteRemoteBranch = !p.mergeState.DeleteRemoteBranch
-			case 3:
-				p.mergeState.PullAfterMerge = !p.mergeState.PullAfterMerge
-			}
-		}
-
-	case "tab":
-		// Tab cycles focus in confirmation step (0-3=checkboxes, 4=confirm, 5=skip)
-		if p.mergeState.Step == MergeStepPostMergeConfirmation {
-			p.mergeState.ConfirmationFocus = (p.mergeState.ConfirmationFocus + 1) % 6
-		}
-
-	case "shift+tab":
-		// Shift+Tab reverse cycles focus
-		if p.mergeState.Step == MergeStepPostMergeConfirmation {
-			p.mergeState.ConfirmationFocus = (p.mergeState.ConfirmationFocus + 5) % 6
 		}
 
 	case "s":
@@ -1308,6 +1285,7 @@ func (p *Plugin) handleMergeKeys(msg tea.KeyMsg) tea.Cmd {
 			p.mergeState.CleanupResults != nil &&
 			p.mergeState.CleanupResults.PullError != nil {
 			p.mergeState.CleanupResults.ShowErrorDetails = !p.mergeState.CleanupResults.ShowErrorDetails
+			p.clearMergeModal() // Rebuild with toggled details
 		}
 		return nil
 

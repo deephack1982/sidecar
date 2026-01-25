@@ -536,346 +536,341 @@ func (p *Plugin) clearAgentChoiceModal() {
 	p.agentChoiceModalWidth = 0
 }
 
-// renderMergeModal renders the merge workflow modal with dimmed background.
-func (p *Plugin) renderMergeModal(width, height int) string {
-	// Render the background (list view)
-	background := p.renderListView(width, height)
-
+// ensureMergeModal builds/rebuilds the merge workflow modal.
+func (p *Plugin) ensureMergeModal() {
 	if p.mergeState == nil {
-		return background
+		return
 	}
 
-	// Modal dimensions
 	modalW := 70
-	if modalW > width-4 {
-		modalW = width - 4
+	if p.width > 0 && modalW > p.width-4 {
+		modalW = p.width - 4
 	}
-	modalH := height - 6
-	if modalH < 20 {
-		modalH = 20
+	if modalW < 30 {
+		modalW = 30
 	}
 
-	var sb strings.Builder
+	// Only rebuild if modal doesn't exist, width changed, or step changed
+	if p.mergeModal != nil && p.mergeModalWidth == modalW && p.mergeModalStep == p.mergeState.Step {
+		return
+	}
+	p.mergeModalWidth = modalW
+	p.mergeModalStep = p.mergeState.Step
 
-	// Title
 	title := fmt.Sprintf("Merge Workflow: %s", p.mergeState.Worktree.Name)
-	sb.WriteString(lipgloss.NewStyle().Bold(true).Render(title))
-	sb.WriteString("\n\n")
 
-	// Progress indicators - show different steps based on merge method
-	var steps []MergeWorkflowStep
-	if p.mergeState.UseDirectMerge {
-		// Direct merge path
-		steps = []MergeWorkflowStep{
-			MergeStepReviewDiff,
-			MergeStepMergeMethod,
-			MergeStepDirectMerge,
-			MergeStepPostMergeConfirmation,
-			MergeStepCleanup,
-		}
-	} else {
-		// PR workflow path
-		steps = []MergeWorkflowStep{
-			MergeStepReviewDiff,
-			MergeStepMergeMethod,
-			MergeStepPush,
-			MergeStepCreatePR,
-			MergeStepWaitingMerge,
-			MergeStepPostMergeConfirmation,
-			MergeStepCleanup,
-		}
+	// Determine primary action based on current step
+	var primaryAction string
+	switch p.mergeState.Step {
+	case MergeStepMergeMethod:
+		primaryAction = mergeMethodActionID
+	case MergeStepPostMergeConfirmation:
+		primaryAction = mergeCleanUpButtonID
 	}
 
-	for _, step := range steps {
-		status := p.mergeState.StepStatus[step]
-		icon := "○" // pending
-		color := styles.TextMuted
-
-		switch status {
-		case "running":
-			icon = "●"
-			color = styles.Warning // yellow
-		case "done":
-			icon = "✓"
-			color = styles.Success // green
-		case "error":
-			icon = "✗"
-			color = styles.Error // red
-		case "skipped":
-			icon = "○"
-			color = styles.TextMuted // gray, same as pending
-		}
-
-		// Highlight current step
-		stepName := step.String()
-		if step == p.mergeState.Step {
-			stepName = lipgloss.NewStyle().Bold(true).Render(stepName)
-		}
-
-		stepLine := fmt.Sprintf("  %s %s",
-			lipgloss.NewStyle().Foreground(color).Render(icon),
-			stepName,
-		)
-		sb.WriteString(stepLine)
-		sb.WriteString("\n")
+	// Build modal based on current step
+	opts := []modal.Option{
+		modal.WithWidth(modalW),
+		modal.WithHints(false),
+		modal.WithCloseOnBackdropClick(false),
 	}
+	if primaryAction != "" {
+		opts = append(opts, modal.WithPrimaryAction(primaryAction))
+	}
+	m := modal.New(title, opts...)
 
-	sb.WriteString("\n")
-	sb.WriteString(strings.Repeat("─", min(modalW-4, 60)))
-	sb.WriteString("\n\n")
+	// Add progress indicator section (always shown)
+	m.AddSection(p.mergeProgressSection())
+	m.AddSection(modal.Custom(func(contentWidth int, focusID, hoverID string) modal.RenderedSection {
+		return modal.RenderedSection{Content: strings.Repeat("─", min(contentWidth, 60))}
+	}, nil))
+	m.AddSection(modal.Spacer())
 
-	// Step-specific content
+	// Add step-specific sections
 	switch p.mergeState.Step {
 	case MergeStepReviewDiff:
+		m.AddSection(p.mergeReviewDiffSection())
+		m.AddSection(modal.Spacer())
+		m.AddSection(modal.Text(dimText("Press Enter to continue, Esc to cancel")))
+
+	case MergeStepMergeMethod:
+		m.AddSection(modal.Text(lipgloss.NewStyle().Bold(true).Render("Choose Merge Method:")))
+		m.AddSection(modal.Spacer())
+		items := []modal.ListItem{
+			{ID: "merge-pr", Label: "Create Pull Request (Recommended)"},
+			{ID: "merge-direct", Label: "Direct Merge"},
+		}
+		m.AddSection(modal.List(mergeMethodListID, items, &p.mergeState.MergeMethodOption, modal.WithMaxVisible(2)))
+		m.AddSection(modal.Spacer())
+		m.AddSection(p.mergeMethodHintsSection())
+		m.AddSection(modal.Spacer())
+		m.AddSection(modal.Text(dimText("↑/↓: select   Enter: continue   Esc: cancel")))
+
+	case MergeStepDirectMerge:
+		baseBranch := resolveBaseBranch(p.mergeState.Worktree)
+		m.AddSection(modal.Text("Merging directly to base branch..."))
+		m.AddSection(modal.Spacer())
+		m.AddSection(modal.Text(dimText(fmt.Sprintf("Merging '%s' into '%s'...", p.mergeState.Worktree.Branch, baseBranch))))
+
+	case MergeStepPush:
+		m.AddSection(modal.Text("Pushing branch to remote..."))
+
+	case MergeStepCreatePR:
+		m.AddSection(modal.Text("Creating pull request..."))
+
+	case MergeStepWaitingMerge:
+		m.AddSection(p.mergeWaitingSection())
+		m.AddSection(modal.Spacer())
+		m.AddSection(modal.Text(dimText("Enter: check now   o: open PR   Esc: exit   ↑/↓: change option")))
+
+	case MergeStepPostMergeConfirmation:
+		m.AddSection(p.mergePostMergeHeaderSection())
+		m.AddSection(modal.Spacer())
+		m.AddSection(modal.Text(lipgloss.NewStyle().Bold(true).Render("Cleanup Options")))
+		m.AddSection(modal.Text(dimText("Select what to clean up:")))
+		m.AddSection(modal.Spacer())
+		m.AddSection(modal.Checkbox(mergeConfirmWorktreeID, "Delete local worktree", &p.mergeState.DeleteLocalWorktree))
+		m.AddSection(modal.Text(dimText("  Removes "+p.mergeState.Worktree.Path)))
+		m.AddSection(modal.Checkbox(mergeConfirmBranchID, "Delete local branch", &p.mergeState.DeleteLocalBranch))
+		m.AddSection(modal.Text(dimText("  Removes '"+p.mergeState.Worktree.Branch+"' locally")))
+		m.AddSection(modal.Checkbox(mergeConfirmRemoteID, "Delete remote branch", &p.mergeState.DeleteRemoteBranch))
+		m.AddSection(modal.Text(dimText("  Removes from GitHub (often auto-deleted)")))
+		m.AddSection(modal.Spacer())
+		m.AddSection(modal.Custom(func(contentWidth int, focusID, hoverID string) modal.RenderedSection {
+			return modal.RenderedSection{Content: strings.Repeat("─", min(contentWidth, 60))}
+		}, nil))
+		m.AddSection(modal.Spacer())
+		m.AddSection(modal.Text(lipgloss.NewStyle().Bold(true).Render("Sync Local Branch")))
+		baseBranch := resolveBaseBranch(p.mergeState.Worktree)
+		m.AddSection(modal.Checkbox(mergeConfirmPullID, fmt.Sprintf("Update local '%s' from remote", baseBranch), &p.mergeState.PullAfterMerge))
+		if p.mergeState.CurrentBranch != "" {
+			m.AddSection(modal.Text(dimText(fmt.Sprintf("  Current branch: %s", p.mergeState.CurrentBranch))))
+		} else {
+			m.AddSection(modal.Text(dimText(fmt.Sprintf("  Updates local %s to include merged PR", baseBranch))))
+		}
+		m.AddSection(modal.Spacer())
+		m.AddSection(modal.Buttons(
+			modal.Btn(" Clean Up ", mergeCleanUpButtonID),
+			modal.Btn(" Skip All ", mergeSkipButtonID),
+		))
+		m.AddSection(modal.Spacer())
+		m.AddSection(modal.Text(dimText("↑/↓: navigate  space: toggle  enter: confirm  esc: cancel")))
+
+	case MergeStepCleanup:
+		m.AddSection(modal.Text("Cleaning up worktree and branch..."))
+
+	case MergeStepDone:
+		m.AddSection(p.mergeDoneSection())
+	}
+
+	// Add error section if any
+	if p.mergeState.Error != nil {
+		m.AddSection(modal.Spacer())
+		m.AddSection(modal.Custom(func(contentWidth int, focusID, hoverID string) modal.RenderedSection {
+			errText := lipgloss.NewStyle().Foreground(styles.Error).Render(
+				fmt.Sprintf("Error: %s", p.mergeState.Error.Error()))
+			return modal.RenderedSection{Content: errText}
+		}, nil))
+	}
+
+	p.mergeModal = m
+}
+
+// mergeProgressSection renders the progress indicators for all steps.
+func (p *Plugin) mergeProgressSection() modal.Section {
+	return modal.Custom(func(contentWidth int, focusID, hoverID string) modal.RenderedSection {
+		if p.mergeState == nil {
+			return modal.RenderedSection{}
+		}
+
+		var sb strings.Builder
+		// Determine which steps to show based on merge method
+		var steps []MergeWorkflowStep
+		if p.mergeState.UseDirectMerge {
+			steps = []MergeWorkflowStep{
+				MergeStepReviewDiff,
+				MergeStepMergeMethod,
+				MergeStepDirectMerge,
+				MergeStepPostMergeConfirmation,
+				MergeStepCleanup,
+			}
+		} else {
+			steps = []MergeWorkflowStep{
+				MergeStepReviewDiff,
+				MergeStepMergeMethod,
+				MergeStepPush,
+				MergeStepCreatePR,
+				MergeStepWaitingMerge,
+				MergeStepPostMergeConfirmation,
+				MergeStepCleanup,
+			}
+		}
+
+		for i, step := range steps {
+			status := p.mergeState.StepStatus[step]
+			icon := "○" // pending
+			color := styles.TextMuted
+
+			switch status {
+			case "running":
+				icon = "●"
+				color = styles.Warning
+			case "done":
+				icon = "✓"
+				color = styles.Success
+			case "error":
+				icon = "✗"
+				color = styles.Error
+			case "skipped":
+				icon = "○"
+				color = styles.TextMuted
+			}
+
+			stepName := step.String()
+			if step == p.mergeState.Step {
+				stepName = lipgloss.NewStyle().Bold(true).Render(stepName)
+			}
+
+			stepLine := fmt.Sprintf("  %s %s",
+				lipgloss.NewStyle().Foreground(color).Render(icon),
+				stepName,
+			)
+			if i > 0 {
+				sb.WriteString("\n")
+			}
+			sb.WriteString(stepLine)
+		}
+
+		return modal.RenderedSection{Content: sb.String()}
+	}, nil)
+}
+
+// mergeReviewDiffSection renders the diff summary for review.
+func (p *Plugin) mergeReviewDiffSection() modal.Section {
+	return modal.Custom(func(contentWidth int, focusID, hoverID string) modal.RenderedSection {
+		if p.mergeState == nil {
+			return modal.RenderedSection{}
+		}
+
+		var sb strings.Builder
 		sb.WriteString(lipgloss.NewStyle().Bold(true).Render("Files Changed:"))
 		sb.WriteString("\n\n")
+
 		if p.mergeState.StepStatus[MergeStepReviewDiff] == "running" {
 			sb.WriteString(dimText("Loading..."))
-			sb.WriteString("\n")
 		} else if p.mergeState.DiffSummary != "" {
-			// Truncate to fit modal
 			summaryLines := strings.Split(p.mergeState.DiffSummary, "\n")
-			maxLines := modalH - 15 // Account for header, progress, footer
-			if maxLines < 5 {
-				maxLines = 5
-			}
+			maxLines := 15
 			if len(summaryLines) > maxLines {
 				summaryLines = summaryLines[:maxLines]
 				summaryLines = append(summaryLines, fmt.Sprintf("... (%d more files)", len(strings.Split(p.mergeState.DiffSummary, "\n"))-maxLines))
 			}
 			for _, line := range summaryLines {
-				sb.WriteString(p.colorStatLine(line, modalW-4))
+				sb.WriteString(p.colorStatLine(line, contentWidth))
 				sb.WriteString("\n")
 			}
 		} else {
 			sb.WriteString(dimText("No files changed"))
-			sb.WriteString("\n")
 		}
-		sb.WriteString("\n")
-		sb.WriteString(dimText("Press Enter to continue, Esc to cancel"))
 
-	case MergeStepMergeMethod:
-		sb.WriteString(lipgloss.NewStyle().Bold(true).Render("Choose Merge Method:"))
-		sb.WriteString("\n\n")
+		return modal.RenderedSection{Content: sb.String()}
+	}, nil)
+}
+
+// mergeMethodHintsSection renders hints for the merge method options.
+func (p *Plugin) mergeMethodHintsSection() modal.Section {
+	return modal.Custom(func(contentWidth int, focusID, hoverID string) modal.RenderedSection {
+		if p.mergeState == nil {
+			return modal.RenderedSection{}
+		}
 
 		baseBranch := resolveBaseBranch(p.mergeState.Worktree)
+		var sb strings.Builder
 
-		// Style helpers for selection and hover states
-		selectedStyle := func(s string) string {
-			return lipgloss.NewStyle().Foreground(styles.Primary).Render(s)
-		}
-		hoverStyle := func(s string) string {
-			return lipgloss.NewStyle().Foreground(styles.TextSecondary).Render(s)
-		}
-
-		// Option 1: Create PR (default)
-		prIcon := "○"
-		prStyle := dimText
 		if p.mergeState.MergeMethodOption == 0 {
-			prIcon = "●"
-			prStyle = selectedStyle
-		} else if p.mergeMethodHover == 1 {
-			prStyle = hoverStyle
+			sb.WriteString(dimText("Push to origin and create a GitHub PR for review"))
+		} else {
+			sb.WriteString(dimText(fmt.Sprintf("Merge directly to '%s' without PR", baseBranch)))
+			sb.WriteString("\n")
+			sb.WriteString(lipgloss.NewStyle().Foreground(styles.Warning).Render("Warning: Bypasses code review"))
 		}
-		sb.WriteString(prStyle(fmt.Sprintf(" %s Create Pull Request (Recommended)", prIcon)))
-		sb.WriteString("\n")
-		sb.WriteString(dimText("      Push to origin and create a GitHub PR for review"))
-		sb.WriteString("\n\n")
 
-		// Option 2: Direct merge
-		directIcon := "○"
-		directStyle := dimText
-		if p.mergeState.MergeMethodOption == 1 {
-			directIcon = "●"
-			directStyle = selectedStyle
-		} else if p.mergeMethodHover == 2 {
-			directStyle = hoverStyle
+		return modal.RenderedSection{Content: sb.String()}
+	}, nil)
+}
+
+// mergeWaitingSection renders the waiting for merge step content.
+func (p *Plugin) mergeWaitingSection() modal.Section {
+	return modal.Custom(func(contentWidth int, focusID, hoverID string) modal.RenderedSection {
+		if p.mergeState == nil {
+			return modal.RenderedSection{}
 		}
-		sb.WriteString(directStyle(fmt.Sprintf(" %s Direct Merge", directIcon)))
-		sb.WriteString("\n")
-		sb.WriteString(dimText(fmt.Sprintf("      Merge directly to '%s' without PR", baseBranch)))
-		sb.WriteString("\n")
-		sb.WriteString(lipgloss.NewStyle().Foreground(styles.Warning).Render("      Warning: Bypasses code review"))
-		sb.WriteString("\n\n")
 
-		sb.WriteString(dimText("↑/↓: select   Enter: continue   Esc: cancel"))
-
-	case MergeStepDirectMerge:
-		sb.WriteString("Merging directly to base branch...")
-		sb.WriteString("\n\n")
-		baseBranch := resolveBaseBranch(p.mergeState.Worktree)
-		sb.WriteString(dimText(fmt.Sprintf("Merging '%s' into '%s'...", p.mergeState.Worktree.Branch, baseBranch)))
-
-	case MergeStepPush:
-		sb.WriteString("Pushing branch to remote...")
-
-	case MergeStepCreatePR:
-		sb.WriteString("Creating pull request...")
-
-	case MergeStepWaitingMerge:
+		var sb strings.Builder
 		if p.mergeState.ExistingPR {
 			sb.WriteString(lipgloss.NewStyle().Bold(true).Foreground(styles.Warning).Render("Using Existing Pull Request"))
 		} else {
 			sb.WriteString(lipgloss.NewStyle().Bold(true).Render("Pull Request Created"))
 		}
 		sb.WriteString("\n\n")
+
 		if p.mergeState.PRURL != "" {
 			sb.WriteString(fmt.Sprintf("URL: %s", p.mergeState.PRURL))
 			sb.WriteString("\n")
 		}
+
 		sb.WriteString("\n")
 		sb.WriteString("Checking merge status every 30 seconds...")
 		sb.WriteString("\n\n")
-		sb.WriteString(strings.Repeat("─", min(modalW-4, 60)))
+		sb.WriteString(strings.Repeat("─", min(contentWidth, 60)))
 		sb.WriteString("\n\n")
 
-		// Radio button selection
 		sb.WriteString(lipgloss.NewStyle().Bold(true).Render("After merge:"))
 		sb.WriteString("\n\n")
 
-		// Option 1: Delete worktree (default)
+		// Radio options
 		if p.mergeState.DeleteAfterMerge {
 			sb.WriteString(lipgloss.NewStyle().Foreground(styles.Primary).Render(" ● Delete worktree after merge"))
 		} else {
 			sb.WriteString(dimText(" ○ Delete worktree after merge"))
 		}
 		sb.WriteString("\n")
-
-		// Option 2: Keep worktree
 		if !p.mergeState.DeleteAfterMerge {
 			sb.WriteString(lipgloss.NewStyle().Foreground(styles.Primary).Render(" ● Keep worktree"))
 		} else {
 			sb.WriteString(dimText(" ○ Keep worktree"))
 		}
 		sb.WriteString("\n\n")
-
 		sb.WriteString(dimText(" (This takes effect only once the PR is merged)"))
-		sb.WriteString("\n\n")
-		sb.WriteString(dimText("Enter: check now   o: open PR   Esc: exit   ↑/↓: change option"))
 
-	case MergeStepPostMergeConfirmation:
-		// Success header
+		return modal.RenderedSection{Content: sb.String()}
+	}, nil)
+}
+
+// mergePostMergeHeaderSection renders the header for post-merge confirmation.
+func (p *Plugin) mergePostMergeHeaderSection() modal.Section {
+	return modal.Custom(func(contentWidth int, focusID, hoverID string) modal.RenderedSection {
 		mergeMethod := "PR Merged"
-		if p.mergeState.UseDirectMerge {
+		if p.mergeState != nil && p.mergeState.UseDirectMerge {
 			mergeMethod = "Direct Merge Complete"
 		}
-		sb.WriteString(lipgloss.NewStyle().Bold(true).Foreground(styles.Success).Render(mergeMethod + "!"))
-		sb.WriteString("\n\n")
+		header := lipgloss.NewStyle().Bold(true).Foreground(styles.Success).Render(mergeMethod + "!")
+		separator := strings.Repeat("─", min(contentWidth, 60))
+		return modal.RenderedSection{Content: header + "\n\n" + separator}
+	}, nil)
+}
 
-		sb.WriteString(strings.Repeat("─", min(modalW-4, 60)))
-		sb.WriteString("\n\n")
-
-		// Cleanup options header
-		sb.WriteString(lipgloss.NewStyle().Bold(true).Render("Cleanup Options"))
-		sb.WriteString("\n")
-		sb.WriteString(dimText("Select what to clean up:"))
-		sb.WriteString("\n\n")
-
-		baseBranch := resolveBaseBranch(p.mergeState.Worktree)
-
-		// Checkbox options
-		type checkboxOpt struct {
-			label   string
-			checked bool
-			hint    string
-		}
-		opts := []checkboxOpt{
-			{"Delete local worktree", p.mergeState.DeleteLocalWorktree,
-				"Removes " + p.mergeState.Worktree.Path},
-			{"Delete local branch", p.mergeState.DeleteLocalBranch,
-				"Removes '" + p.mergeState.Worktree.Branch + "' locally"},
-			{"Delete remote branch", p.mergeState.DeleteRemoteBranch,
-				"Removes from GitHub (often auto-deleted)"},
+// mergeDoneSection renders the completion summary.
+func (p *Plugin) mergeDoneSection() modal.Section {
+	return modal.Custom(func(contentWidth int, focusID, hoverID string) modal.RenderedSection {
+		if p.mergeState == nil {
+			return modal.RenderedSection{}
 		}
 
-		for i, opt := range opts {
-			checkbox := "[ ]"
-			if opt.checked {
-				checkbox = "[x]"
-			}
-
-			line := fmt.Sprintf("  %s %s", checkbox, opt.label)
-
-			if p.mergeState.ConfirmationFocus == i {
-				sb.WriteString(lipgloss.NewStyle().Foreground(styles.Primary).Bold(true).Render("> " + line[2:]))
-			} else if p.mergeConfirmCheckboxHover == i+1 {
-				// Hover state (subtle highlight)
-				sb.WriteString(lipgloss.NewStyle().Foreground(styles.Secondary).Render(line))
-			} else {
-				sb.WriteString(line)
-			}
-			sb.WriteString("\n")
-			sb.WriteString(dimText("      " + opt.hint))
-			sb.WriteString("\n")
-		}
-
-		sb.WriteString("\n")
-		sb.WriteString(strings.Repeat("─", min(modalW-4, 60)))
-		sb.WriteString("\n\n")
-
-		// Pull section
-		sb.WriteString(lipgloss.NewStyle().Bold(true).Render("Sync Local Branch"))
-		sb.WriteString("\n")
-
-		// Pull checkbox
-		pullCheckbox := "[ ]"
-		if p.mergeState.PullAfterMerge {
-			pullCheckbox = "[x]"
-		}
-		pullLabel := fmt.Sprintf("Update local '%s' from remote", baseBranch)
-		pullLine := fmt.Sprintf("  %s %s", pullCheckbox, pullLabel)
-		if p.mergeState.ConfirmationFocus == 3 {
-			sb.WriteString(lipgloss.NewStyle().Foreground(styles.Primary).Bold(true).Render("> " + pullLine[2:]))
-		} else if p.mergeConfirmCheckboxHover == 4 {
-			// Hover state (subtle highlight)
-			sb.WriteString(lipgloss.NewStyle().Foreground(styles.Secondary).Render(pullLine))
-		} else {
-			sb.WriteString(pullLine)
-		}
-		sb.WriteString("\n")
-		if p.mergeState.CurrentBranch != "" {
-			sb.WriteString(dimText(fmt.Sprintf("      Current branch: %s", p.mergeState.CurrentBranch)))
-		} else {
-			sb.WriteString(dimText(fmt.Sprintf("      Updates local %s to include merged PR", baseBranch)))
-		}
-		sb.WriteString("\n\n")
-
-		// Buttons (now at focus indices 4 and 5)
-		confirmLabel := " Clean Up "
-		skipLabel := " Skip All "
-
-		confirmStyle := lipgloss.NewStyle().Background(styles.Primary).Foreground(styles.TextInverse)
-		skipStyle := lipgloss.NewStyle().Background(styles.BgTertiary).Foreground(styles.TextPrimary)
-
-		if p.mergeState.ConfirmationFocus == 4 {
-			confirmStyle = confirmStyle.Bold(true).Background(styles.Success)
-		} else if p.mergeConfirmButtonHover == 1 {
-			// Hover state for Clean Up button
-			confirmStyle = confirmStyle.Background(styles.Secondary)
-		}
-		if p.mergeState.ConfirmationFocus == 5 {
-			skipStyle = skipStyle.Bold(true).Background(styles.Warning)
-		} else if p.mergeConfirmButtonHover == 2 {
-			// Hover state for Skip All button
-			skipStyle = skipStyle.Background(styles.TextMuted)
-		}
-
-		sb.WriteString("  ")
-		sb.WriteString(confirmStyle.Render(confirmLabel))
-		sb.WriteString("  ")
-		sb.WriteString(skipStyle.Render(skipLabel))
-		sb.WriteString("\n\n")
-
-		sb.WriteString(dimText("↑/↓: navigate  space: toggle  enter: confirm  esc: cancel"))
-
-	case MergeStepCleanup:
-		sb.WriteString("Cleaning up worktree and branch...")
-
-	case MergeStepDone:
+		var sb strings.Builder
 		sb.WriteString(lipgloss.NewStyle().Bold(true).Foreground(styles.Success).Render("Merge workflow complete!"))
 		sb.WriteString("\n\n")
 
-		// Show cleanup summary
 		if p.mergeState.CleanupResults != nil {
 			results := p.mergeState.CleanupResults
 			sb.WriteString("Summary:\n")
@@ -898,7 +893,6 @@ func (p *Plugin) renderMergeModal(width, height int) string {
 					sb.WriteString(successStyle.Render("  ✓ Pulled latest changes"))
 					sb.WriteString("\n")
 				} else if results.PullError != nil {
-					// Truncated error with toggle
 					warnStyle := lipgloss.NewStyle().Foreground(styles.Warning)
 					errorStyle := lipgloss.NewStyle().Foreground(styles.Error)
 
@@ -906,12 +900,10 @@ func (p *Plugin) renderMergeModal(width, height int) string {
 					sb.WriteString(errorStyle.Render(results.PullErrorSummary))
 					sb.WriteString("\n")
 
-					// Show full details if expanded
 					if results.ShowErrorDetails {
 						sb.WriteString("\n")
 						sb.WriteString(dimText("  Details:"))
 						sb.WriteString("\n")
-						// Wrap long lines and indent (cap at 10 lines)
 						allDetailLines := strings.Split(results.PullErrorFull, "\n")
 						maxDetailLines := 10
 						detailLines := allDetailLines
@@ -925,8 +917,7 @@ func (p *Plugin) renderMergeModal(width, height int) string {
 							}
 						}
 						if len(allDetailLines) > maxDetailLines {
-							sb.WriteString(dimText(fmt.Sprintf("    ... (%d more lines)",
-								len(allDetailLines)-maxDetailLines)))
+							sb.WriteString(dimText(fmt.Sprintf("    ... (%d more lines)", len(allDetailLines)-maxDetailLines)))
 							sb.WriteString("\n")
 						}
 						sb.WriteString("\n")
@@ -936,27 +927,18 @@ func (p *Plugin) renderMergeModal(width, height int) string {
 					}
 					sb.WriteString("\n")
 
-					// Resolution actions for diverged branches
 					if results.BranchDiverged {
 						sb.WriteString("\n")
-						sepLen := modalW - 4
-						if sepLen > 60 {
-							sepLen = 60
-						}
-						sb.WriteString(strings.Repeat("─", sepLen))
+						sb.WriteString(strings.Repeat("─", min(contentWidth, 60)))
 						sb.WriteString("\n\n")
 						sb.WriteString(lipgloss.NewStyle().Bold(true).Render("Resolution Options"))
 						sb.WriteString("\n")
 						sb.WriteString(dimText(fmt.Sprintf("  Your local '%s' has diverged from remote.", results.BaseBranch)))
 						sb.WriteString("\n\n")
-
-						// Rebase option
 						sb.WriteString(dimText("    [r] Rebase local onto remote"))
 						sb.WriteString("\n")
 						sb.WriteString(dimText("        Replay your local commits on top of remote changes"))
 						sb.WriteString("\n\n")
-
-						// Merge option
 						sb.WriteString(dimText("    [m] Merge remote into local"))
 						sb.WriteString("\n")
 						sb.WriteString(dimText("        Creates a merge commit combining both histories"))
@@ -965,7 +947,6 @@ func (p *Plugin) renderMergeModal(width, height int) string {
 				}
 			}
 
-			// Show any errors/warnings
 			if len(results.Errors) > 0 {
 				sb.WriteString("\n")
 				sb.WriteString(lipgloss.NewStyle().Foreground(styles.Warning).Render("Warnings:"))
@@ -976,12 +957,10 @@ func (p *Plugin) renderMergeModal(width, height int) string {
 				}
 			}
 		} else {
-			// No cleanup was performed
 			sb.WriteString("No cleanup performed. Worktree and branches remain.")
 		}
 
 		sb.WriteString("\n\n")
-		// Context-aware footer hints
 		if p.mergeState.CleanupResults != nil && p.mergeState.CleanupResults.BranchDiverged {
 			sb.WriteString(dimText("r: rebase  m: merge  d: details  Enter: close"))
 		} else if p.mergeState.CleanupResults != nil && p.mergeState.CleanupResults.PullError != nil {
@@ -989,99 +968,29 @@ func (p *Plugin) renderMergeModal(width, height int) string {
 		} else {
 			sb.WriteString(dimText("Press Enter to close"))
 		}
+
+		return modal.RenderedSection{Content: sb.String()}
+	}, nil)
+}
+
+// clearMergeModal clears the merge modal state.
+func (p *Plugin) clearMergeModal() {
+	p.mergeModal = nil
+	p.mergeModalWidth = 0
+	p.mergeModalStep = 0
+}
+
+// renderMergeModal renders the merge workflow modal with dimmed background.
+func (p *Plugin) renderMergeModal(width, height int) string {
+	background := p.renderListView(width, height)
+
+	p.ensureMergeModal()
+	if p.mergeModal == nil {
+		return background
 	}
 
-	// Show error if any
-	if p.mergeState.Error != nil {
-		sb.WriteString("\n\n")
-		sb.WriteString(lipgloss.NewStyle().Foreground(styles.Error).Render(
-			fmt.Sprintf("Error: %s", p.mergeState.Error.Error())))
-	}
-
-	content := sb.String()
-	modal := modalStyle().Width(modalW).Render(content)
-
-	// Register hit regions for merge method options during MergeStepMergeMethod
-	if p.mergeState.Step == MergeStepMergeMethod {
-		modalH := lipgloss.Height(modal)
-		modalX := (width - modalW) / 2
-		modalY := (height - modalH) / 2
-
-		// Calculate position of merge method radio options
-		// Border offset is 2: border(1) + padding(1)
-		// Content structure before step content:
-		// - Title (1 line)
-		// - blank (1 line)
-		// - Progress steps: 5 if UseDirectMerge, 7 otherwise
-		// - blank (1 line)
-		// - separator (1 line)
-		// - blank (2 lines from \n\n)
-		progressSteps := 7
-		if p.mergeState.UseDirectMerge {
-			progressSteps = 5
-		}
-		// Lines before step content: 1 + 1 + progressSteps + 1 + 1 + 2 = progressSteps + 6
-		// Then "Choose Merge Method:" (1) + blank (1) = 2 more lines before options
-		option1Y := modalY + 2 + progressSteps + 6 + 2 // border(1) + padding(1) + header content + step header + blank
-		option2Y := option1Y + 3                       // Option 1 text + description + blank
-
-		p.mouseHandler.HitMap.AddRect(regionMergeMethodOption, modalX+2, option1Y, modalW-6, 1, 0) // Create PR
-		p.mouseHandler.HitMap.AddRect(regionMergeMethodOption, modalX+2, option2Y, modalW-6, 1, 1) // Direct Merge
-	}
-
-	// Register hit regions for radio buttons during MergeStepWaitingMerge
-	if p.mergeState.Step == MergeStepWaitingMerge {
-		modalH := lipgloss.Height(modal)
-		modalX := (width - modalW) / 2
-		modalY := (height - modalH) / 2
-
-		// Radio buttons position calculated from bottom of content
-		// Border offset is 2: border(1) + padding(1)
-		contentLines := strings.Count(content, "\n")
-		// Radio buttons are approximately at contentLines - 7 (from bottom)
-		// "Delete worktree" and "Keep worktree" options
-		radio1Y := modalY + 2 + contentLines - 7
-		radio2Y := radio1Y + 1
-		p.mouseHandler.HitMap.AddRect(regionMergeRadio, modalX+2, radio1Y, modalW-6, 1, 0) // Delete
-		p.mouseHandler.HitMap.AddRect(regionMergeRadio, modalX+2, radio2Y, modalW-6, 1, 1) // Keep
-	}
-
-	// Register hit regions for post-merge confirmation step
-	if p.mergeState.Step == MergeStepPostMergeConfirmation {
-		modalH := lipgloss.Height(modal)
-		modalX := (width - modalW) / 2
-		modalY := (height - modalH) / 2
-
-		// Calculate positions based on content structure
-		// Title(1) + blank(1) + separator(1) + blank(1) + header(1) + subtext(1) + blank(1) = 7 lines before checkboxes
-		// Border offset is 2: border(1) + padding(1)
-		checkboxBaseY := modalY + 2 + 7 // border(1) + padding(1) + content lines to checkboxes
-
-		// Three cleanup checkbox options (2 lines each: checkbox + hint)
-		for i := 0; i < 3; i++ {
-			p.mouseHandler.HitMap.AddRect(
-				regionMergeConfirmCheckbox,
-				modalX+2,
-				checkboxBaseY+(i*2),
-				modalW-6,
-				1,
-				i,
-			)
-		}
-
-		// Pull checkbox (focus index 3)
-		// After 3 cleanup checkboxes (6 lines) + blank(1) + separator(1) + blank(1) + header(1) = 10 lines
-		pullCheckboxY := checkboxBaseY + 10
-		p.mouseHandler.HitMap.AddRect(regionMergeConfirmCheckbox, modalX+2, pullCheckboxY, modalW-6, 1, 3)
-
-		// Button hit regions (after pull checkbox + hint + blank)
-		buttonY := pullCheckboxY + 3
-		p.mouseHandler.HitMap.AddRect(regionMergeConfirmButton, modalX+4, buttonY, 12, 1, nil)
-		p.mouseHandler.HitMap.AddRect(regionMergeSkipButton, modalX+18, buttonY, 12, 1, nil)
-	}
-
-	// Use OverlayModal for dimmed background effect
-	return ui.OverlayModal(background, modal, width, height)
+	modalContent := p.mergeModal.Render(width, height, p.mouseHandler)
+	return ui.OverlayModal(background, modalContent, width, height)
 }
 
 // renderCommitForMergeModal renders the commit-before-merge modal.

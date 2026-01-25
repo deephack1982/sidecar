@@ -65,12 +65,17 @@ const (
 	// Task Link modal regions
 	regionTaskLinkDropdown = "task-link-dropdown"
 
-	// Merge modal regions
-	regionMergeMethodOption    = "merge-method-option"
-	regionMergeRadio           = "merge-radio"
-	regionMergeConfirmCheckbox = "merge-confirm-checkbox"
-	regionMergeConfirmButton   = "merge-confirm-btn"
-	regionMergeSkipButton      = "merge-skip-btn"
+	// Merge modal element IDs
+	mergeMethodListID      = "merge-method-list"
+	mergeMethodActionID    = "merge-method-action"
+	mergeWaitingDeleteID   = "merge-waiting-delete"
+	mergeWaitingKeepID     = "merge-waiting-keep"
+	mergeConfirmWorktreeID = "merge-confirm-worktree"
+	mergeConfirmBranchID   = "merge-confirm-branch"
+	mergeConfirmRemoteID   = "merge-confirm-remote"
+	mergeConfirmPullID     = "merge-confirm-pull"
+	mergeCleanUpButtonID   = "merge-cleanup-btn"
+	mergeSkipButtonID      = "merge-skip-btn"
 
 	// Prompt Picker modal regions
 	regionPromptItem   = "prompt-item"
@@ -223,10 +228,10 @@ type Plugin struct {
 	taskMarkdownWidth    int      // Width used for cached render
 
 	// Merge workflow state
-	mergeState                *MergeWorkflowState
-	mergeMethodHover          int // 0=none, 1=Create PR option, 2=Direct Merge option (for mouse hover)
-	mergeConfirmCheckboxHover int // 0=none, 1-4 for cleanup checkboxes (mouse hover)
-	mergeConfirmButtonHover   int // 0=none, 1=Clean Up, 2=Skip All (mouse hover)
+	mergeState      *MergeWorkflowState
+	mergeModal      *modal.Modal // Modal instance for merge workflow
+	mergeModalWidth int          // Cached width for rebuild detection
+	mergeModalStep  MergeWorkflowStep // Cached step for rebuild detection
 
 	// Commit-before-merge state
 	mergeCommitState        *MergeCommitState

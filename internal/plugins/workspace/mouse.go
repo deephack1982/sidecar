@@ -56,6 +56,10 @@ func (p *Plugin) handleMouse(msg tea.MouseMsg) tea.Cmd {
 		return p.handleAgentChoiceModalMouse(msg)
 	}
 
+	if p.viewMode == ViewModeMerge {
+		return p.handleMergeModalMouse(msg)
+	}
+
 	action := p.mouseHandler.HandleMouse(msg)
 
 	switch action.Type {
@@ -262,6 +266,36 @@ func (p *Plugin) handleAgentChoiceModalMouse(msg tea.MouseMsg) tea.Cmd {
 	return nil
 }
 
+func (p *Plugin) handleMergeModalMouse(msg tea.MouseMsg) tea.Cmd {
+	p.ensureMergeModal()
+	if p.mergeModal == nil {
+		return nil
+	}
+
+	action := p.mergeModal.HandleMouse(msg, p.mouseHandler)
+	switch action {
+	case "":
+		return nil
+	case "cancel":
+		p.cancelMergeWorkflow()
+		p.clearMergeModal()
+		return nil
+	case mergeMethodActionID, mergeCleanUpButtonID:
+		// Advance to next step
+		return p.advanceMergeStep()
+	case mergeSkipButtonID:
+		// Skip all cleanup
+		if p.mergeState != nil {
+			p.mergeState.DeleteLocalWorktree = false
+			p.mergeState.DeleteLocalBranch = false
+			p.mergeState.DeleteRemoteBranch = false
+			p.mergeState.PullAfterMerge = false
+		}
+		return p.advanceMergeStep()
+	}
+	return nil
+}
+
 // handleMouseHover handles hover events for visual feedback.
 func (p *Plugin) handleMouseHover(action mouse.MouseAction) tea.Cmd {
 	// Guard: absorb background region hovers when a modal is open (td-f63097).
@@ -295,38 +329,8 @@ func (p *Plugin) handleMouseHover(action mouse.MouseAction) tea.Cmd {
 		// Modal library handles hover state internally
 		return nil
 	case ViewModeMerge:
-		if action.Region == nil {
-			p.mergeMethodHover = 0
-			p.mergeConfirmCheckboxHover = 0
-			p.mergeConfirmButtonHover = 0
-			return nil
-		}
-		switch action.Region.ID {
-		case regionMergeMethodOption:
-			if idx, ok := action.Region.Data.(int); ok {
-				p.mergeMethodHover = idx + 1 // 1=Create PR, 2=Direct Merge
-			}
-			p.mergeConfirmCheckboxHover = 0
-			p.mergeConfirmButtonHover = 0
-		case regionMergeConfirmCheckbox:
-			if idx, ok := action.Region.Data.(int); ok {
-				p.mergeConfirmCheckboxHover = idx + 1 // 1-4 for checkboxes
-			}
-			p.mergeMethodHover = 0
-			p.mergeConfirmButtonHover = 0
-		case regionMergeConfirmButton:
-			p.mergeConfirmButtonHover = 1 // Clean Up
-			p.mergeMethodHover = 0
-			p.mergeConfirmCheckboxHover = 0
-		case regionMergeSkipButton:
-			p.mergeConfirmButtonHover = 2 // Skip All
-			p.mergeMethodHover = 0
-			p.mergeConfirmCheckboxHover = 0
-		default:
-			p.mergeMethodHover = 0
-			p.mergeConfirmCheckboxHover = 0
-			p.mergeConfirmButtonHover = 0
-		}
+		// Modal library handles hover state internally
+		return nil
 	case ViewModeTypeSelector:
 		if action.Region == nil {
 			p.typeSelectorHover = -1 // No hover
@@ -354,9 +358,6 @@ func (p *Plugin) handleMouseHover(action mouse.MouseAction) tea.Cmd {
 		}
 	default:
 		p.createButtonHover = 0
-		p.mergeMethodHover = 0
-		p.mergeConfirmCheckboxHover = 0
-		p.mergeConfirmButtonHover = 0
 		// Handle sidebar header button hover
 		p.hoverNewButton = false
 		p.hoverShellsPlusButton = false
@@ -594,49 +595,6 @@ func (p *Plugin) handleMouseClick(action mouse.MouseAction) tea.Cmd {
 				p.linkingWorktree = nil
 				return p.linkTask(wt, task.ID)
 			}
-		}
-	case regionMergeMethodOption:
-		// Click on merge method option (0=Create PR, 1=Direct Merge)
-		if idx, ok := action.Region.Data.(int); ok && p.mergeState != nil &&
-			p.mergeState.Step == MergeStepMergeMethod {
-			p.mergeState.MergeMethodOption = idx
-		}
-	case regionMergeRadio:
-		// Click on merge radio option (0=delete, 1=keep)
-		if idx, ok := action.Region.Data.(int); ok && p.mergeState != nil {
-			p.mergeState.DeleteAfterMerge = (idx == 0)
-		}
-	case regionMergeConfirmCheckbox:
-		// Click on confirmation checkbox (0-2=cleanup, 3=pull)
-		if idx, ok := action.Region.Data.(int); ok && p.mergeState != nil &&
-			p.mergeState.Step == MergeStepPostMergeConfirmation {
-			switch idx {
-			case 0:
-				p.mergeState.DeleteLocalWorktree = !p.mergeState.DeleteLocalWorktree
-			case 1:
-				p.mergeState.DeleteLocalBranch = !p.mergeState.DeleteLocalBranch
-			case 2:
-				p.mergeState.DeleteRemoteBranch = !p.mergeState.DeleteRemoteBranch
-			case 3:
-				p.mergeState.PullAfterMerge = !p.mergeState.PullAfterMerge
-			}
-			p.mergeState.ConfirmationFocus = idx
-		}
-	case regionMergeConfirmButton:
-		// Click on Clean Up button (focus index 4)
-		if p.mergeState != nil && p.mergeState.Step == MergeStepPostMergeConfirmation {
-			p.mergeState.ConfirmationFocus = 4
-			return p.advanceMergeStep()
-		}
-	case regionMergeSkipButton:
-		// Click on Skip All button (focus index 5)
-		if p.mergeState != nil && p.mergeState.Step == MergeStepPostMergeConfirmation {
-			p.mergeState.DeleteLocalWorktree = false
-			p.mergeState.DeleteLocalBranch = false
-			p.mergeState.DeleteRemoteBranch = false
-			p.mergeState.PullAfterMerge = false
-			p.mergeState.ConfirmationFocus = 5
-			return p.advanceMergeStep()
 		}
 	case regionTypeSelectorOption:
 		// Click on type selector option - select it (visual only)

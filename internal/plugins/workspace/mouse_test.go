@@ -53,7 +53,7 @@ func TestIsBackgroundRegion(t *testing.T) {
 		agentChoiceConfirmID, agentChoiceCancelID,
 		deleteConfirmDeleteID, deleteConfirmCancelID,
 		regionCreateBackdrop, regionCreateModalBody, regionCreateInput,
-		regionMergeMethodOption, regionMergeConfirmButton,
+		mergeMethodListID, mergeCleanUpButtonID, mergeSkipButtonID, // Merge modal element IDs
 		regionTypeSelectorOption, regionTypeSelectorConfirm, regionTypeSelectorCancel, regionTypeSelectorNameInput,
 		regionPromptItem, regionPromptFilter,
 	}
@@ -96,20 +96,20 @@ func TestModalClickGuard(t *testing.T) {
 }
 
 func TestModalClickGuardAllowsModalRegions(t *testing.T) {
-	// Merge modal should still respond to its own regions
+	// Merge modal now uses modal library which handles its own regions via handleMergeModalMouse
+	// This test verifies that handleMouseClick returns nil for merge modal (since it's handled separately)
 	p := &Plugin{
 		viewMode:     ViewModeMerge,
 		mouseHandler: mouse.NewHandler(),
 	}
 	action := mouse.MouseAction{
 		Type:   mouse.ActionClick,
-		Region: &mouse.Region{ID: regionMergeMethodOption, Data: 0},
+		Region: &mouse.Region{ID: mergeCleanUpButtonID, Data: nil},
 	}
-	// Should NOT be blocked - merge modal handles its own clicks
+	// handleMouseClick should not process merge modal clicks (handled by handleMergeModalMouse)
 	cmd := p.handleMouseClick(action)
-	// merge method click returns nil but updates state
 	if cmd != nil {
-		t.Errorf("merge modal click returned unexpected cmd")
+		t.Errorf("merge modal click via handleMouseClick returned unexpected cmd")
 	}
 }
 
