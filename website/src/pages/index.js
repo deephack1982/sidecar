@@ -1178,6 +1178,10 @@ export default function Home() {
                 <span>Merge Workflow</span>
               </div>
               <div className="sc-miniFeature">
+                <span className="sc-miniFeatureIcon"><i className="icon-git-fork" /></span>
+                <span>Worktree Switcher</span>
+              </div>
+              <div className="sc-miniFeature">
                 <span className="sc-miniFeatureIcon"><i className="icon-refresh-cw" /></span>
                 <span>Global Refresh</span>
               </div>
