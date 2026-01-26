@@ -19,9 +19,10 @@ type ShellManifestChangedMsg struct{}
 // When changes are detected, it emits ShellManifestChangedMsg for cross-instance sync.
 type ShellWatcher struct {
 	fsWatcher *fsnotify.Watcher
-	path      string            // path to shells.json
-	msgChan   chan tea.Msg      // channel for emitting messages
-	stopChan  chan struct{}     // signal to stop
+	path      string       // path to shells.json
+	msgChan   chan tea.Msg // channel for emitting messages
+	stopChan  chan struct{}
+	doneChan  chan struct{} // closed when run() exits (td-cb47a2)
 	mu        sync.Mutex
 	stopped   bool
 }
@@ -41,6 +42,7 @@ func NewShellWatcher(manifestPath string) (*ShellWatcher, error) {
 		path:      manifestPath,
 		msgChan:   make(chan tea.Msg, 1),
 		stopChan:  make(chan struct{}),
+		doneChan:  make(chan struct{}),
 	}
 
 	// Watch the parent directory (for file creation)
@@ -74,19 +76,23 @@ func (w *ShellWatcher) Start() <-chan tea.Msg {
 // Stop stops the watcher and closes channels.
 func (w *ShellWatcher) Stop() {
 	w.mu.Lock()
-	defer w.mu.Unlock()
-
 	if w.stopped {
+		w.mu.Unlock()
 		return
 	}
 	w.stopped = true
-
 	close(w.stopChan)
 	w.fsWatcher.Close()
+	w.mu.Unlock()
+
+	// Wait for run() to finish before returning (td-cb47a2)
+	// This ensures timer callbacks complete and msgChan is closed safely
+	<-w.doneChan
 }
 
 // run is the main watch loop.
 func (w *ShellWatcher) run() {
+	defer close(w.doneChan) // Signal that run() has exited (td-cb47a2)
 	defer close(w.msgChan)
 
 	var debounceTimer *time.Timer
@@ -118,18 +124,32 @@ func (w *ShellWatcher) run() {
 
 			slog.Debug("shellwatcher: event", "op", event.Op, "name", event.Name)
 
-			// If file was just created, add it to watch list
+			// If file was just created, add it to watch list (td-dc7b64)
+			// Check stopped under mutex to avoid race with Stop()
 			if event.Op&fsnotify.Create != 0 {
-				w.fsWatcher.Add(w.path)
+				w.mu.Lock()
+				if !w.stopped {
+					w.fsWatcher.Add(w.path)
+				}
+				w.mu.Unlock()
 			}
 
 			// Debounce rapid events
 			if debounceTimer != nil {
 				debounceTimer.Stop()
 			}
+			// Use stopChan check in callback to avoid send on closed channel (td-cb47a2)
 			debounceTimer = time.AfterFunc(shellWatcherDebounce, func() {
 				select {
+				case <-w.stopChan:
+					// Watcher is stopping, don't send
+					return
+				default:
+				}
+				select {
 				case w.msgChan <- ShellManifestChangedMsg{}:
+				case <-w.stopChan:
+					// Watcher stopped while trying to send
 				default:
 					// Channel full, skip
 				}

@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -72,7 +73,11 @@ func LoadShellManifest(path string) (*ShellManifest, error) {
 func (m *ShellManifest) Save() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	return m.saveLocked()
+}
 
+// saveLocked writes the manifest to disk. Caller must hold m.mu.
+func (m *ShellManifest) saveLocked() error {
 	// Ensure .sidecar directory exists
 	dir := filepath.Dir(m.path)
 	if err := os.MkdirAll(dir, 0755); err != nil {
@@ -106,31 +111,29 @@ func (m *ShellManifest) Save() error {
 // AddShell adds a shell definition and saves.
 func (m *ShellManifest) AddShell(def ShellDefinition) error {
 	m.mu.Lock()
+	defer m.mu.Unlock()
 	// Check for duplicate
 	for i, s := range m.Shells {
 		if s.TmuxName == def.TmuxName {
 			// Update existing
 			m.Shells[i] = def
-			m.mu.Unlock()
-			return m.Save()
+			return m.saveLocked()
 		}
 	}
 	m.Shells = append(m.Shells, def)
-	m.mu.Unlock()
-	return m.Save()
+	return m.saveLocked()
 }
 
 // RemoveShell removes a shell by tmuxName and saves.
 func (m *ShellManifest) RemoveShell(tmuxName string) error {
 	m.mu.Lock()
+	defer m.mu.Unlock()
 	for i, s := range m.Shells {
 		if s.TmuxName == tmuxName {
 			m.Shells = append(m.Shells[:i], m.Shells[i+1:]...)
-			m.mu.Unlock()
-			return m.Save()
+			return m.saveLocked()
 		}
 	}
-	m.mu.Unlock()
 	return nil // Not found, nothing to remove
 }
 
@@ -149,16 +152,16 @@ func (m *ShellManifest) FindShell(tmuxName string) *ShellDefinition {
 // UpdateShell updates an existing shell definition and saves.
 func (m *ShellManifest) UpdateShell(def ShellDefinition) error {
 	m.mu.Lock()
+	defer m.mu.Unlock()
 	for i, s := range m.Shells {
 		if s.TmuxName == def.TmuxName {
 			m.Shells[i] = def
-			m.mu.Unlock()
-			return m.Save()
+			return m.saveLocked()
 		}
 	}
-	m.mu.Unlock()
 	// Not found - add it
-	return m.AddShell(def)
+	m.Shells = append(m.Shells, def)
+	return m.saveLocked()
 }
 
 // Path returns the manifest file path.
@@ -166,7 +169,13 @@ func (m *ShellManifest) Path() string {
 	return m.path
 }
 
-// acquireManifestLock acquires an advisory lock on the manifest file.
+// lockTimeout is the maximum time to wait for file lock acquisition (td-984ead)
+const lockTimeout = 5 * time.Second
+
+// lockRetryInterval is how often to retry lock acquisition
+const lockRetryInterval = 10 * time.Millisecond
+
+// acquireManifestLock acquires an advisory lock on the manifest file with timeout.
 // exclusive=true for writes, false for reads.
 func acquireManifestLock(path string, exclusive bool) (*os.File, error) {
 	lockPath := path + ".lock"
@@ -182,17 +191,29 @@ func acquireManifestLock(path string, exclusive bool) (*os.File, error) {
 		return nil, err
 	}
 
-	lockType := syscall.LOCK_SH
+	lockType := syscall.LOCK_SH | syscall.LOCK_NB
 	if exclusive {
-		lockType = syscall.LOCK_EX
+		lockType = syscall.LOCK_EX | syscall.LOCK_NB
 	}
 
-	if err := syscall.Flock(int(lockFile.Fd()), lockType); err != nil {
-		lockFile.Close()
-		return nil, err
+	// Try non-blocking lock with timeout (td-984ead)
+	deadline := time.Now().Add(lockTimeout)
+	for {
+		err := syscall.Flock(int(lockFile.Fd()), lockType)
+		if err == nil {
+			return lockFile, nil
+		}
+		// EWOULDBLOCK means lock is held by another process
+		if err != syscall.EWOULDBLOCK && err != syscall.EAGAIN {
+			lockFile.Close()
+			return nil, err
+		}
+		if time.Now().After(deadline) {
+			lockFile.Close()
+			return nil, fmt.Errorf("lock acquisition timeout after %v", lockTimeout)
+		}
+		time.Sleep(lockRetryInterval)
 	}
-
-	return lockFile, nil
 }
 
 // releaseManifestLock releases the advisory lock.

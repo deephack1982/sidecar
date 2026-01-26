@@ -612,11 +612,18 @@ func (p *Plugin) Update(msg tea.Msg) (plugin.Plugin, tea.Cmd) {
 				} else if len(p.worktrees) > 0 {
 					p.shellSelected = false
 					p.selectedIdx = 0
+				} else {
+					// No shells or worktrees left - reset selection state (td-782611)
+					p.shellSelected = false
+					p.selectedShellIdx = 0
+					p.selectedIdx = -1
 				}
 			}
 			p.saveSelectionState()
-			// Reload content for the newly selected item
-			cmds = append(cmds, p.loadSelectedContent())
+			// Reload content for the newly selected item (if any remain)
+			if len(p.shells) > 0 || len(p.worktrees) > 0 {
+				cmds = append(cmds, p.loadSelectedContent())
+			}
 		}
 
 	case ShellSessionDeadMsg:
@@ -657,11 +664,18 @@ func (p *Plugin) Update(msg tea.Msg) (plugin.Plugin, tea.Cmd) {
 				} else if len(p.worktrees) > 0 {
 					p.shellSelected = false
 					p.selectedIdx = 0
+				} else {
+					// No shells or worktrees left - reset selection state (td-782611)
+					p.shellSelected = false
+					p.selectedShellIdx = 0
+					p.selectedIdx = -1
 				}
 			}
 			p.saveSelectionState()
-			// Reload content for the newly selected item
-			return p, p.loadSelectedContent()
+			// Reload content for the newly selected item (if any remain)
+			if len(p.shells) > 0 || len(p.worktrees) > 0 {
+				return p, p.loadSelectedContent()
+			}
 		}
 		return p, nil
 
