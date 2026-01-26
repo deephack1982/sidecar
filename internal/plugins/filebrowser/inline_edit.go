@@ -12,6 +12,7 @@ import (
 	"github.com/marcus/sidecar/internal/features"
 	"github.com/marcus/sidecar/internal/msg"
 	"github.com/marcus/sidecar/internal/styles"
+	"github.com/marcus/sidecar/internal/tty"
 )
 
 // InlineEditStartedMsg is sent when inline edit mode starts successfully.
@@ -457,6 +458,94 @@ func (p *Plugin) processPendingClickAction() (*Plugin, tea.Cmd) {
 	}
 
 	return p, nil
+}
+
+// calculateInlineEditorMouseCoords converts screen coordinates to editor-relative coordinates.
+// Returns (col, row, ok) where col and row are 1-indexed for SGR mouse protocol.
+// Returns ok=false if the coordinates are outside the editor content area.
+func (p *Plugin) calculateInlineEditorMouseCoords(x, y int) (col, row int, ok bool) {
+	if p.width <= 0 || p.height <= 0 {
+		return 0, 0, false
+	}
+
+	// Calculate preview pane X offset
+	var previewX int
+	if p.treeVisible {
+		p.calculatePaneWidths()
+		previewX = p.treeWidth + dividerWidth
+	}
+
+	// Content X offset: preview pane start + border(1) + padding(1)
+	contentX := previewX + 2
+
+	// Calculate Y offset based on input bars and pane structure
+	contentY := 0
+
+	// Account for input bars (content search, file op, line jump)
+	if p.contentSearchMode || p.fileOpMode != FileOpNone || p.lineJumpMode {
+		contentY++
+		if p.fileOpMode != FileOpNone && p.fileOpError != "" {
+			contentY++ // error line
+		}
+	}
+
+	// Add pane border (top)
+	contentY++
+
+	// Add tab line if multiple tabs
+	if len(p.tabs) > 1 {
+		contentY++
+	}
+
+	// Add header line ("Editing: filename...")
+	contentY++
+
+	// Calculate relative coordinates
+	relX := x - contentX
+	relY := y - contentY
+
+	if relX < 0 || relY < 0 {
+		return 0, 0, false
+	}
+
+	// Validate bounds against editor dimensions
+	editorWidth := p.calculateInlineEditorWidth()
+	editorHeight := p.calculateInlineEditorHeight()
+
+	if relX >= editorWidth || relY >= editorHeight {
+		return 0, 0, false
+	}
+
+	// SGR mouse protocol uses 1-indexed coordinates
+	return relX + 1, relY + 1, true
+}
+
+// forwardMouseToInlineEditor sends a mouse click to the inline editor's tmux session.
+// col and row are 1-indexed coordinates relative to the editor content area.
+func (p *Plugin) forwardMouseToInlineEditor(col, row int) tea.Cmd {
+	if p.inlineEditor == nil || !p.inlineEditor.IsActive() {
+		return nil
+	}
+	if p.inlineEditSession == "" {
+		return nil
+	}
+
+	sessionName := p.inlineEditSession
+	return func() tea.Msg {
+		// Send SGR mouse press and release for a click
+		if err := tty.SendSGRMouse(sessionName, 0, col, row, false); err != nil {
+			if tty.IsSessionDeadError(err) {
+				return tty.SessionDeadMsg{}
+			}
+			return nil
+		}
+		if err := tty.SendSGRMouse(sessionName, 0, col, row, true); err != nil {
+			if tty.IsSessionDeadError(err) {
+				return tty.SessionDeadMsg{}
+			}
+		}
+		return nil
+	}
 }
 
 // selectTreeItem selects the given tree item and loads its preview.

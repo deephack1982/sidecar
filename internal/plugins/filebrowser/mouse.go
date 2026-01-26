@@ -67,7 +67,15 @@ func (p *Plugin) handleMouse(msg tea.MouseMsg) (*Plugin, tea.Cmd) {
 				case regionTreePane, regionTreeItem, regionPreviewTab:
 					return handleClickAway(action.Region.ID, action.Region.Data)
 				case regionPreviewPane, regionPreviewLine:
-					// Click in preview area - forward to tty for selection/interaction
+					// Forward mouse click to vim
+					// Note: Always try forwarding because tmux capture-pane doesn't
+					// capture mouse mode enable sequences, so detection doesn't work.
+					// Vim will ignore clicks if mouse mode isn't enabled.
+					col, row, ok := p.calculateInlineEditorMouseCoords(action.X, action.Y)
+					if ok {
+						return p, p.forwardMouseToInlineEditor(col, row)
+					}
+					// Click outside editor content - forward to tty
 					cmd := p.inlineEditor.Update(msg)
 					return p, cmd
 				}
