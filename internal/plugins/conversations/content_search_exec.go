@@ -110,7 +110,7 @@ func RunContentSearch(query string, sessions []adapter.Session,
 
 				// Get adapter for this session
 				adp, ok := adapters[s.AdapterID]
-				if !ok {
+				if !ok || adp == nil {
 					return
 				}
 

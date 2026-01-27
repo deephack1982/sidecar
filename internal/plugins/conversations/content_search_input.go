@@ -17,6 +17,7 @@ func (p *Plugin) handleContentSearchKey(msg tea.KeyMsg) (plugin.Plugin, tea.Cmd)
 	case key.Matches(msg, key.NewBinding(key.WithKeys("esc"))):
 		p.contentSearchMode = false
 		p.contentSearchState = nil
+		p.hitRegionsDirty = true
 		return p, nil
 
 	case key.Matches(msg, key.NewBinding(key.WithKeys("enter"))):
@@ -225,6 +226,7 @@ func (p *Plugin) jumpToSearchResult() tea.Cmd {
 
 	// Close search modal
 	p.contentSearchMode = false
+	p.hitRegionsDirty = true
 
 	// Find the session in our list and select it
 	found := false
