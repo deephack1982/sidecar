@@ -535,17 +535,6 @@ func (p *Plugin) restoreEditStateFromTab() bool {
 	return true
 }
 
-// clearTabEditState clears edit state from a specific tab without killing the session.
-func (p *Plugin) clearTabEditState(index int) {
-	if index < 0 || index >= len(p.tabs) {
-		return
-	}
-	tab := &p.tabs[index]
-	tab.EditSession = ""
-	tab.EditOrigMtime = time.Time{}
-	tab.EditEditor = ""
-}
-
 // killTabEditSession kills the tmux session for a tab if it has one.
 func (p *Plugin) killTabEditSession(index int) {
 	if index < 0 || index >= len(p.tabs) {

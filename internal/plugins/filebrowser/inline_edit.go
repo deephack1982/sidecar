@@ -476,28 +476,16 @@ func (p *Plugin) processPendingClickAction() (*Plugin, tea.Cmd) {
 		p.activePane = PaneTree
 		return p, p.loadCurrentTreeItemPreview()
 	case "preview-tab":
-		// User clicked a tab - switch to it
+		// User clicked a tab - switch to it using switchTab to trigger edit state restoration
 		if idx, ok := data.(int); ok {
-			p.activeTab = idx
-			if idx < len(p.tabs) {
-				// Update previewFile so PreviewLoadedMsg is accepted
-				p.previewFile = p.tabs[idx].Path
-				return p, LoadPreview(p.ctx.WorkDir, p.tabs[idx].Path)
-			}
+			return p, p.switchTab(idx)
 		} else if len(p.tabs) > 1 {
-			// Fallback: if we don't know which tab was clicked but user clicked
-			// in the tab area, switch to a different tab than current
-			// (they were editing current tab and want to switch away)
+			// Fallback: switch to a different tab than current
 			newTab := 0
 			if p.activeTab == 0 {
 				newTab = 1
 			}
-			p.activeTab = newTab
-			if newTab < len(p.tabs) {
-				// Update previewFile so PreviewLoadedMsg is accepted
-				p.previewFile = p.tabs[newTab].Path
-				return p, LoadPreview(p.ctx.WorkDir, p.tabs[newTab].Path)
-			}
+			return p, p.switchTab(newTab)
 		}
 	}
 
