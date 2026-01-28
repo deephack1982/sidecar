@@ -1178,12 +1178,6 @@ type FetchSuccessClearMsg struct{}
 // PullSuccessClearMsg is sent to clear the pull success indicator.
 type PullSuccessClearMsg struct{}
 
-// TickCmd returns a command that triggers a refresh every second.
-func TickCmd() tea.Cmd {
-	return tea.Tick(time.Second, func(t time.Time) tea.Msg {
-		return app.RefreshMsg{}
-	})
-}
 
 // initCommitTextarea initializes the commit message textarea.
 func (p *Plugin) initCommitTextarea() {

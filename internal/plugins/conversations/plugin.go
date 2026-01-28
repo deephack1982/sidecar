@@ -1153,13 +1153,6 @@ type MessageReloadMsg struct {
 // GetEpoch implements plugin.EpochMessage.
 func (m MessageReloadMsg) GetEpoch() uint64 { return m.Epoch }
 
-// TickCmd returns a command that triggers periodic refresh.
-// Captures the current epoch so stale ticks from a previous project are discarded.
-func TickCmd(epoch uint64) tea.Cmd {
-	return tea.Tick(2*time.Second, func(t time.Time) tea.Msg {
-		return WatchEventMsg{Epoch: epoch}
-	})
-}
 
 // checkLargeSessionWarnings returns toast warnings for any large sessions not yet warned.
 // Marks sessions as warned to avoid duplicate notifications.
