@@ -164,10 +164,9 @@ type Model struct {
 	themeSwitcherHover         int // hovered theme index (-1 = none)
 	themeSwitcherSelectedIdx   int
 	themeSwitcherInput         textinput.Model
-	themeSwitcherFiltered      []string
-	themeSwitcherOriginal      string // original theme to restore on cancel
-	themeSwitcherCommunityName string
-	themeSwitcherScope         string // "global" or "project"
+	themeSwitcherFiltered      []themeEntry
+	themeSwitcherOriginal      themeEntry // original theme to restore on cancel
+	themeSwitcherScope         string     // "global" or "project"
 
 	// Issue preview - input phase
 	showIssueInput         bool
@@ -192,18 +191,6 @@ type Model struct {
 	issuePreviewModal        *modal.Modal
 	issuePreviewModalWidth   int
 	issuePreviewMouseHandler *mouse.Handler
-
-	// Community theme browser (sub-mode of theme switcher)
-	showCommunityBrowser     bool
-	communityBrowserCursor   int
-	communityBrowserScroll   int
-	communityBrowserHover    int
-	communityBrowserInput    textinput.Model
-	communityBrowserFiltered []string
-	communityBrowserOriginal     string // theme state to restore on cancel
-	communityBrowserModal        *modal.Modal
-	communityBrowserModalWidth   int
-	communityBrowserMouseHandler *mouse.Handler
 
 	// Header/footer
 	ui *UIState
@@ -290,9 +277,8 @@ func New(reg *plugin.Registry, km *keymap.Registry, cfg *config.Config, currentV
 		ui:                    ui,
 		ready:                 false,
 		intro:                 NewIntroModel(repoName),
-		currentVersion:        currentVersion,
-		communityBrowserHover: -1,
-		updatePhaseStatus:     make(map[UpdatePhase]string),
+		currentVersion:    currentVersion,
+		updatePhaseStatus: make(map[UpdatePhase]string),
 	}
 }
 
@@ -812,7 +798,6 @@ func (m *Model) confirmThemeSelection(tc config.ThemeConfig, displayName string)
 
 	// Save before reset clears scope
 	if err := m.saveTheme(tc, scope); err != nil {
-		m.resetCommunityBrowser()
 		m.resetThemeSwitcher()
 		m.updateContext()
 		return func() tea.Msg {
@@ -823,7 +808,6 @@ func (m *Model) confirmThemeSelection(tc config.ThemeConfig, displayName string)
 		m.cfg = cfg
 	}
 
-	m.resetCommunityBrowser()
 	m.resetThemeSwitcher()
 	m.updateContext()
 
@@ -1058,8 +1042,7 @@ func (m *Model) resetThemeSwitcher() {
 	m.themeSwitcherSelectedIdx = 0
 	m.themeSwitcherFiltered = nil
 	m.themeSwitcherScope = ""
-	m.themeSwitcherOriginal = ""
-	m.themeSwitcherCommunityName = ""
+	m.themeSwitcherOriginal = themeEntry{}
 	m.clearThemeSwitcherModal()
 }
 
@@ -1128,18 +1111,16 @@ func (m *Model) backToIssueInput() {
 
 // initThemeSwitcher initializes the theme switcher modal.
 func (m *Model) initThemeSwitcher() {
-	m.resetCommunityBrowser()
-
 	ti := textinput.New()
 	ti.Placeholder = "Filter themes..."
 	ti.Focus()
 	ti.CharLimit = 50
-	ti.Width = 40
+	ti.Width = 54
 	m.themeSwitcherInput = ti
-	m.themeSwitcherFiltered = styles.ListThemes()
+
+	allEntries := buildUnifiedThemeList()
+	m.themeSwitcherFiltered = allEntries
 	m.themeSwitcherSelectedIdx = 0
-	m.themeSwitcherOriginal = styles.GetCurrentThemeName()
-	m.themeSwitcherCommunityName = ""
 	if m.currentProjectConfig() != nil {
 		m.themeSwitcherScope = "project"
 	} else {
@@ -1147,40 +1128,42 @@ func (m *Model) initThemeSwitcher() {
 	}
 	m.clearThemeSwitcherModal()
 
+	// Determine original theme from config
+	m.themeSwitcherOriginal = themeEntry{Name: "default", IsBuiltIn: true, ThemeKey: "default"}
 	if freshCfg, err := config.Load(); err == nil {
-		if freshCfg.UI.Theme.Name != "" {
-			m.themeSwitcherOriginal = freshCfg.UI.Theme.Name
+		if freshCfg.UI.Theme.Community != "" {
+			// Current theme is a community theme
+			communityName := freshCfg.UI.Theme.Community
+			m.themeSwitcherOriginal = themeEntry{Name: communityName, IsBuiltIn: false, ThemeKey: communityName}
+		} else if freshCfg.UI.Theme.Name != "" {
+			name := freshCfg.UI.Theme.Name
+			displayName := name
+			if t := styles.GetTheme(name); t.DisplayName != "" {
+				displayName = t.DisplayName
+			}
+			m.themeSwitcherOriginal = themeEntry{Name: displayName, IsBuiltIn: true, ThemeKey: name}
 		}
-		m.themeSwitcherCommunityName = freshCfg.UI.Theme.Community
 	}
 
-	// Set cursor to current theme if found
-	if m.themeSwitcherCommunityName == "" {
-		for i, name := range m.themeSwitcherFiltered {
-			if name == m.themeSwitcherOriginal {
-				m.themeSwitcherSelectedIdx = i
-				break
-			}
+	// Set cursor to current theme
+	for i, entry := range m.themeSwitcherFiltered {
+		if entry.IsBuiltIn == m.themeSwitcherOriginal.IsBuiltIn && entry.ThemeKey == m.themeSwitcherOriginal.ThemeKey {
+			m.themeSwitcherSelectedIdx = i
+			break
 		}
-	} else {
-		m.initCommunityBrowser()
-		m.selectCommunityScheme(m.themeSwitcherCommunityName)
 	}
 }
 
-// filterThemes filters themes by name using a case-insensitive substring match.
-func filterThemes(all []string, query string) []string {
-	if query == "" {
-		return all
+// previewThemeEntry applies the given theme entry for live preview.
+func (m *Model) previewThemeEntry(entry themeEntry) {
+	if entry.IsBuiltIn {
+		m.applyThemeFromConfig(entry.ThemeKey)
+	} else {
+		theme.ApplyResolved(theme.ResolvedTheme{
+			BaseName:      "default",
+			CommunityName: entry.ThemeKey,
+		})
 	}
-	q := strings.ToLower(query)
-	var matches []string
-	for _, name := range all {
-		if strings.Contains(strings.ToLower(name), q) {
-			matches = append(matches, name)
-		}
-	}
-	return matches
 }
 
 // themeSwitcherEnsureCursorVisible adjusts scroll to keep cursor in view.
@@ -1192,69 +1175,6 @@ func themeSwitcherEnsureCursorVisible(cursor, scroll, maxVisible int) int {
 		return cursor - maxVisible + 1
 	}
 	return scroll
-}
-
-// initCommunityBrowser initializes the community theme browser sub-mode.
-func (m *Model) initCommunityBrowser() {
-	ti := textinput.New()
-	ti.Placeholder = "Search community themes..."
-	ti.Focus()
-	ti.CharLimit = 50
-	ti.Width = 40
-	m.communityBrowserInput = ti
-	m.communityBrowserFiltered = community.ListSchemes()
-	m.communityBrowserCursor = 0
-	m.communityBrowserScroll = 0
-	m.communityBrowserHover = -1
-	m.communityBrowserOriginal = m.themeSwitcherOriginal
-	m.showCommunityBrowser = true
-}
-
-// resetCommunityBrowser resets the community browser state.
-func (m *Model) resetCommunityBrowser() {
-	m.showCommunityBrowser = false
-	m.communityBrowserCursor = 0
-	m.communityBrowserScroll = 0
-	m.communityBrowserHover = -1
-	m.communityBrowserFiltered = nil
-	m.communityBrowserOriginal = ""
-	m.clearCommunityBrowserModal()
-}
-
-// clearCommunityBrowserModal clears the modal to force rebuild on next render.
-func (m *Model) clearCommunityBrowserModal() {
-	m.communityBrowserModal = nil
-	m.communityBrowserModalWidth = 0
-	m.communityBrowserMouseHandler = nil
-}
-
-// filterCommunitySchemes filters scheme names by substring match.
-func filterCommunitySchemes(all []string, query string) []string {
-	if query == "" {
-		return all
-	}
-	q := strings.ToLower(query)
-	var matches []string
-	for _, name := range all {
-		if strings.Contains(strings.ToLower(name), q) {
-			matches = append(matches, name)
-		}
-	}
-	return matches
-}
-
-func (m *Model) selectCommunityScheme(name string) {
-	if name == "" {
-		return
-	}
-	for i, schemeName := range m.communityBrowserFiltered {
-		if schemeName == name {
-			m.communityBrowserCursor = i
-			m.communityBrowserScroll = themeSwitcherEnsureCursorVisible(i, 0, 8)
-			m.communityBrowserHover = -1
-			return
-		}
-	}
 }
 
 // applyThemeFromConfig applies a theme, using config overrides only if the

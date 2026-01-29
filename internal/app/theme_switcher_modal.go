@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/marcus/sidecar/internal/community"
 	"github.com/marcus/sidecar/internal/modal"
 	"github.com/marcus/sidecar/internal/mouse"
 	"github.com/marcus/sidecar/internal/styles"
@@ -17,6 +18,56 @@ const (
 	themeSwitcherItemPrefix = "theme-switcher-item-"
 )
 
+// themeEntry represents a single theme in the unified theme list.
+type themeEntry struct {
+	Name          string // display name
+	IsBuiltIn     bool
+	ThemeKey      string // built-in: theme registry key; community: scheme name
+	IsSeparator   bool   // non-selectable separator line
+	SeparatorText string // e.g. "Community Themes (453)"
+}
+
+// buildUnifiedThemeList returns all themes: built-in first, then community.
+func buildUnifiedThemeList() []themeEntry {
+	builtIn := styles.ListThemes()
+	communityNames := community.ListSchemes()
+	entries := make([]themeEntry, 0, len(builtIn)+len(communityNames))
+	for _, name := range builtIn {
+		displayName := name
+		if t := styles.GetTheme(name); t.DisplayName != "" {
+			displayName = t.DisplayName
+		}
+		entries = append(entries, themeEntry{Name: displayName, IsBuiltIn: true, ThemeKey: name})
+	}
+	entries = append(entries, themeEntry{
+		IsSeparator:   true,
+		SeparatorText: fmt.Sprintf("Community Themes (%d)", len(communityNames)),
+	})
+	for _, name := range communityNames {
+		entries = append(entries, themeEntry{Name: name, IsBuiltIn: false, ThemeKey: name})
+	}
+	return entries
+}
+
+// filterThemeEntries filters entries by case-insensitive substring match on Name.
+// Separators are included only when unfiltered; they are excluded when a query is active.
+func filterThemeEntries(entries []themeEntry, query string) []themeEntry {
+	if query == "" {
+		return entries
+	}
+	q := strings.ToLower(query)
+	var matches []themeEntry
+	for _, e := range entries {
+		if e.IsSeparator {
+			continue
+		}
+		if strings.Contains(strings.ToLower(e.Name), q) {
+			matches = append(matches, e)
+		}
+	}
+	return matches
+}
+
 // themeSwitcherItemID returns the ID for a theme item at the given index.
 func themeSwitcherItemID(idx int) string {
 	return fmt.Sprintf("%s%d", themeSwitcherItemPrefix, idx)
@@ -24,7 +75,7 @@ func themeSwitcherItemID(idx int) string {
 
 // ensureThemeSwitcherModal builds/rebuilds the theme switcher modal.
 func (m *Model) ensureThemeSwitcherModal() {
-	modalW := 58
+	modalW := 72
 	if modalW > m.width-4 {
 		modalW = m.width - 4
 	}
@@ -56,17 +107,26 @@ func (m *Model) themeSwitcherHasProject() bool {
 	return m.currentProjectConfig() != nil
 }
 
-// themeSwitcherCountSection renders the theme count/community info.
+// themeSwitcherCountSection renders the theme count info.
 func (m *Model) themeSwitcherCountSection() modal.Section {
 	return modal.Custom(func(contentWidth int, focusID, hoverID string) modal.RenderedSection {
-		allThemes := styles.ListThemes()
-		themes := m.themeSwitcherFiltered
+		all := buildUnifiedThemeList()
+		allCount := 0
+		for _, e := range all {
+			if !e.IsSeparator {
+				allCount++
+			}
+		}
+		filteredCount := 0
+		for _, e := range m.themeSwitcherFiltered {
+			if !e.IsSeparator {
+				filteredCount++
+			}
+		}
 
 		var text string
 		if m.themeSwitcherInput.Value() != "" {
-			text = fmt.Sprintf("%d of %d themes", len(themes), len(allThemes))
-		} else if m.themeSwitcherCommunityName != "" {
-			text = fmt.Sprintf("Community theme: %s", m.themeSwitcherCommunityName)
+			text = fmt.Sprintf("%d of %d themes", filteredCount, allCount)
 		}
 
 		if text == "" {
@@ -85,23 +145,14 @@ func (m *Model) themeSwitcherListSection() modal.Section {
 			return modal.RenderedSection{Content: styles.Muted.Render("No matches")}
 		}
 
-		// Styles for theme items
 		cursorStyle := lipgloss.NewStyle().Foreground(styles.Primary)
 		nameNormalStyle := lipgloss.NewStyle().Foreground(styles.Secondary)
 		nameSelectedStyle := lipgloss.NewStyle().Foreground(styles.Primary).Bold(true)
 		nameCurrentStyle := lipgloss.NewStyle().Foreground(styles.Success).Bold(true)
-		nameCurrentSelectedStyle := lipgloss.NewStyle().Foreground(styles.Success).Bold(true)
 
-		currentTheme := m.themeSwitcherOriginal
-		if m.themeSwitcherCommunityName != "" {
-			currentTheme = ""
-		}
-
-		// Calculate visible window for scrolling
-		maxVisible := 8
+		maxVisible := 12
 		visibleCount := min(maxVisible, len(themes))
 
-		// Ensure selected index is valid
 		selectedIdx := m.themeSwitcherSelectedIdx
 		if selectedIdx < 0 {
 			selectedIdx = 0
@@ -110,7 +161,6 @@ func (m *Model) themeSwitcherListSection() modal.Section {
 			selectedIdx = len(themes) - 1
 		}
 
-		// Calculate scroll offset to keep selection visible
 		scrollOffset := 0
 		if selectedIdx >= maxVisible {
 			scrollOffset = selectedIdx - maxVisible + 1
@@ -126,51 +176,63 @@ func (m *Model) themeSwitcherListSection() modal.Section {
 		focusables := make([]modal.FocusableInfo, 0, visibleCount)
 		lineOffset := 0
 
-		// Scroll indicator (top)
 		if scrollOffset > 0 {
 			sb.WriteString(styles.Muted.Render(fmt.Sprintf("  ↑ %d more above", scrollOffset)))
 			sb.WriteString("\n")
 			lineOffset++
 		}
 
-		// Render theme list
 		for i := scrollOffset; i < scrollOffset+visibleCount && i < len(themes); i++ {
-			themeName := themes[i]
+			entry := themes[i]
+
+			// Render separator lines (non-selectable)
+			if entry.IsSeparator {
+				sb.WriteString(styles.Muted.Render(fmt.Sprintf("  ── %s ──", entry.SeparatorText)))
+				sb.WriteString("\n")
+				continue
+			}
+
 			isSelected := i == selectedIdx
 			itemID := themeSwitcherItemID(i)
 			isHovered := itemID == hoverID
-			isCurrent := themeName == currentTheme
+			isCurrent := entry.IsBuiltIn == m.themeSwitcherOriginal.IsBuiltIn && entry.ThemeKey == m.themeSwitcherOriginal.ThemeKey
 
-			// Cursor indicator
 			if isSelected {
 				sb.WriteString(cursorStyle.Render("> "))
 			} else {
 				sb.WriteString("  ")
 			}
 
-			// Theme name styling
+			// Color swatch for all themes
+			if entry.IsBuiltIn {
+				t := styles.GetTheme(entry.ThemeKey)
+				swatchColors := []string{t.Colors.Primary, t.Colors.Success, t.Colors.Secondary, t.Colors.Error}
+				for _, sc := range swatchColors {
+					sb.WriteString(lipgloss.NewStyle().Background(lipgloss.Color(sc)).Render(" "))
+				}
+				sb.WriteString(" ")
+			} else {
+				scheme := community.GetScheme(entry.ThemeKey)
+				if scheme != nil {
+					swatchColors := []string{scheme.Red, scheme.Green, scheme.Blue, scheme.Purple}
+					for _, sc := range swatchColors {
+						sb.WriteString(lipgloss.NewStyle().Background(lipgloss.Color(sc)).Render(" "))
+					}
+					sb.WriteString(" ")
+				}
+			}
+
 			var nameStyle lipgloss.Style
 			if isCurrent {
-				if isSelected || isHovered {
-					nameStyle = nameCurrentSelectedStyle
-				} else {
-					nameStyle = nameCurrentStyle
-				}
+				nameStyle = nameCurrentStyle
 			} else if isSelected || isHovered {
 				nameStyle = nameSelectedStyle
 			} else {
 				nameStyle = nameNormalStyle
 			}
 
-			// Get display name from theme
-			theme := styles.GetTheme(themeName)
-			displayName := theme.DisplayName
-			if displayName == "" {
-				displayName = themeName
-			}
-			sb.WriteString(nameStyle.Render(displayName))
+			sb.WriteString(nameStyle.Render(entry.Name))
 
-			// Current indicator
 			if isCurrent {
 				sb.WriteString(styles.Muted.Render(" (current)"))
 			}
@@ -185,7 +247,6 @@ func (m *Model) themeSwitcherListSection() modal.Section {
 			})
 		}
 
-		// Scroll indicator (bottom)
 		remaining := len(themes) - (scrollOffset + visibleCount)
 		if remaining > 0 {
 			sb.WriteString(styles.Muted.Render(fmt.Sprintf("  ↓ %d more below", remaining)))
@@ -211,10 +272,13 @@ func (m *Model) themeSwitcherListUpdate(msg tea.Msg, focusID string) (string, te
 	case "up", "k", "ctrl+p":
 		if m.themeSwitcherSelectedIdx > 0 {
 			m.themeSwitcherSelectedIdx--
-			m.themeSwitcherModalWidth = 0 // Force modal rebuild for scroll
-			// Live preview
-			if m.themeSwitcherSelectedIdx < len(themes) {
-				m.applyThemeFromConfig(themes[m.themeSwitcherSelectedIdx])
+			// Skip separators
+			for m.themeSwitcherSelectedIdx > 0 && themes[m.themeSwitcherSelectedIdx].IsSeparator {
+				m.themeSwitcherSelectedIdx--
+			}
+			m.themeSwitcherModalWidth = 0
+			if m.themeSwitcherSelectedIdx < len(themes) && !themes[m.themeSwitcherSelectedIdx].IsSeparator {
+				m.previewThemeEntry(themes[m.themeSwitcherSelectedIdx])
 			}
 		}
 		return "", nil
@@ -222,16 +286,19 @@ func (m *Model) themeSwitcherListUpdate(msg tea.Msg, focusID string) (string, te
 	case "down", "j", "ctrl+n":
 		if m.themeSwitcherSelectedIdx < len(themes)-1 {
 			m.themeSwitcherSelectedIdx++
-			m.themeSwitcherModalWidth = 0 // Force modal rebuild for scroll
-			// Live preview
-			if m.themeSwitcherSelectedIdx < len(themes) {
-				m.applyThemeFromConfig(themes[m.themeSwitcherSelectedIdx])
+			// Skip separators
+			for m.themeSwitcherSelectedIdx < len(themes)-1 && themes[m.themeSwitcherSelectedIdx].IsSeparator {
+				m.themeSwitcherSelectedIdx++
+			}
+			m.themeSwitcherModalWidth = 0
+			if m.themeSwitcherSelectedIdx < len(themes) && !themes[m.themeSwitcherSelectedIdx].IsSeparator {
+				m.previewThemeEntry(themes[m.themeSwitcherSelectedIdx])
 			}
 		}
 		return "", nil
 
 	case "enter":
-		if m.themeSwitcherSelectedIdx >= 0 && m.themeSwitcherSelectedIdx < len(themes) {
+		if m.themeSwitcherSelectedIdx >= 0 && m.themeSwitcherSelectedIdx < len(themes) && !themes[m.themeSwitcherSelectedIdx].IsSeparator {
 			return "select", nil
 		}
 		return "", nil
@@ -277,9 +344,7 @@ func (m *Model) themeSwitcherHintsSection() modal.Section {
 			sb.WriteString(styles.KeyHint.Render("enter"))
 			sb.WriteString(styles.Muted.Render(" select  "))
 			sb.WriteString(styles.KeyHint.Render("↑/↓"))
-			sb.WriteString(styles.Muted.Render(" navigate  "))
-			sb.WriteString(styles.KeyHint.Render("tab"))
-			sb.WriteString(styles.Muted.Render(" community"))
+			sb.WriteString(styles.Muted.Render(" navigate"))
 			if m.currentProjectConfig() != nil {
 				sb.WriteString(styles.Muted.Render("  "))
 				sb.WriteString(styles.KeyHint.Render("←/→"))
@@ -296,10 +361,6 @@ func (m *Model) themeSwitcherHintsSection() modal.Section {
 
 // renderThemeSwitcherModal renders the theme switcher modal using the modal library.
 func (m *Model) renderThemeSwitcherModal(content string) string {
-	if m.showCommunityBrowser {
-		return m.renderCommunityBrowserOverlay(content)
-	}
-
 	m.ensureThemeSwitcherModal()
 	if m.themeSwitcherModal == nil {
 		return content

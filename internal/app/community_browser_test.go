@@ -1,79 +1,103 @@
 package app
 
 import (
-	"reflect"
-	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/x/ansi"
 	"github.com/marcus/sidecar/internal/community"
+	"github.com/marcus/sidecar/internal/styles"
 )
 
-func TestCommunityBrowserFilterAndView(t *testing.T) {
-	var m Model
-	m.width = 80
-	m.height = 24
-	m.themeSwitcherOriginal = "default"
-	m.initCommunityBrowser()
+func TestBuildUnifiedThemeList(t *testing.T) {
+	entries := buildUnifiedThemeList()
+	builtInCount := len(styles.ListThemes())
+	communityCount := len(community.ListSchemes())
 
-	if !m.showCommunityBrowser {
-		t.Fatal("expected community browser to be visible after init")
-	}
-	if len(m.communityBrowserFiltered) == 0 {
-		t.Fatal("expected community schemes to be available")
+	// +1 for separator between built-in and community
+	expectedTotal := builtInCount + 1 + communityCount
+	if len(entries) != expectedTotal {
+		t.Errorf("expected %d entries (inc separator), got %d", expectedTotal, len(entries))
 	}
 
-	query := "no-such-theme-xyz123"
-	msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(query)}
-	updated, _ := m.handleCommunityBrowserKey(msg)
-	m = *updated.(*Model)
-
-	if m.communityBrowserInput.Value() != query {
-		t.Errorf("communityBrowserInput = %q, want %q", m.communityBrowserInput.Value(), query)
+	// Built-in themes should come first
+	for i := 0; i < builtInCount; i++ {
+		if !entries[i].IsBuiltIn {
+			t.Errorf("entry %d should be built-in", i)
+		}
 	}
 
-	expected := filterCommunitySchemes(community.ListSchemes(), query)
-	if !reflect.DeepEqual(m.communityBrowserFiltered, expected) {
-		t.Errorf("communityBrowserFiltered mismatch: got %d items, want %d", len(m.communityBrowserFiltered), len(expected))
+	// Separator at boundary
+	if !entries[builtInCount].IsSeparator {
+		t.Error("expected separator between built-in and community themes")
 	}
 
-	rendered := ansi.Strip(m.renderCommunityBrowserOverlay(""))
-	if !strings.Contains(rendered, "Community Themes") {
-		t.Errorf("expected community browser title in view")
-	}
-	if len(expected) == 0 && !strings.Contains(rendered, "No matches") {
-		t.Errorf("expected empty-state text in view when no matches")
+	// Community themes after separator
+	for i := builtInCount + 1; i < len(entries); i++ {
+		if entries[i].IsBuiltIn || entries[i].IsSeparator {
+			t.Errorf("entry %d should be community, got built-in or separator", i)
+		}
 	}
 }
 
-func TestCommunityBrowserCursorMovement(t *testing.T) {
+func TestFilterThemeEntries(t *testing.T) {
+	entries := buildUnifiedThemeList()
+
+	// Filter for a built-in theme
+	filtered := filterThemeEntries(entries, "dracula")
+	found := false
+	for _, e := range filtered {
+		if e.IsBuiltIn && e.ThemeKey == "dracula" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("expected to find dracula in filtered results")
+	}
+
+	// Empty query returns all (including separator)
+	all := filterThemeEntries(entries, "")
+	if len(all) != len(entries) {
+		t.Errorf("empty filter: expected %d, got %d", len(entries), len(all))
+	}
+
+	// Filtering excludes separators
+	filtered2 := filterThemeEntries(entries, "a")
+	for _, e := range filtered2 {
+		if e.IsSeparator {
+			t.Error("filtered results should not contain separators")
+		}
+	}
+
+	// No matches
+	none := filterThemeEntries(entries, "zzz-nonexistent-theme-xyz")
+	if len(none) != 0 {
+		t.Errorf("expected 0 matches, got %d", len(none))
+	}
+}
+
+func TestUnifiedThemeCursorNavigation(t *testing.T) {
 	var m Model
 	m.width = 80
-	m.height = 24
-	m.themeSwitcherOriginal = "default"
-	m.initCommunityBrowser()
+	m.height = 40
+	m.initThemeSwitcher()
 
-	if len(m.communityBrowserFiltered) < 2 {
-		t.Skip("not enough schemes to test cursor movement")
+	if len(m.themeSwitcherFiltered) == 0 {
+		t.Fatal("expected themes to be available")
 	}
 
-	start := m.communityBrowserCursor
-	updated, _ := m.handleCommunityBrowserKey(tea.KeyMsg{Type: tea.KeyDown})
-	m = *updated.(*Model)
-	if m.communityBrowserCursor != start+1 {
-		t.Errorf("cursor after down = %d, want %d", m.communityBrowserCursor, start+1)
+	// Verify list has both built-in and community entries
+	hasBuiltIn := false
+	hasCommunity := false
+	for _, e := range m.themeSwitcherFiltered {
+		if e.IsBuiltIn {
+			hasBuiltIn = true
+		} else {
+			hasCommunity = true
+		}
 	}
-
-	updated, _ = m.handleCommunityBrowserKey(tea.KeyMsg{Type: tea.KeyUp})
-	m = *updated.(*Model)
-	if m.communityBrowserCursor != start {
-		t.Errorf("cursor after up = %d, want %d", m.communityBrowserCursor, start)
+	if !hasBuiltIn {
+		t.Error("expected built-in themes in unified list")
 	}
-
-	updated, _ = m.handleCommunityBrowserKey(tea.KeyMsg{Type: tea.KeyUp})
-	m = *updated.(*Model)
-	if m.communityBrowserCursor != 0 {
-		t.Errorf("cursor after clamp up = %d, want 0", m.communityBrowserCursor)
+	if !hasCommunity {
+		t.Error("expected community themes in unified list")
 	}
 }

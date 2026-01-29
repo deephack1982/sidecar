@@ -99,9 +99,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case ModalWorktreeSwitcher:
 			return m.handleWorktreeSwitcherMouse(msg)
 		case ModalThemeSwitcher:
-			if m.showCommunityBrowser {
-				return m.handleCommunityBrowserMouse(msg)
-			}
 			return m.handleThemeSwitcherMouse(msg)
 		case ModalIssueInput:
 			return m.handleIssueInputMouse(msg)
@@ -484,28 +481,14 @@ func (m *Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.updateContext()
 			return m, nil
 		case ModalThemeSwitcher:
-			if m.showCommunityBrowser {
-				// Esc in community browser: clear filter or return to built-in view
-				if m.communityBrowserInput.Value() != "" {
-					m.communityBrowserInput.SetValue("")
-					m.communityBrowserFiltered = community.ListSchemes()
-					m.communityBrowserCursor = 0
-					m.communityBrowserScroll = 0
-					return m, nil
-				}
-				m.applyThemeFromConfig(m.communityBrowserOriginal)
-				m.resetCommunityBrowser()
-				return m, nil
-			}
 			// Esc: clear filter if set, otherwise close (restore original)
 			if m.themeSwitcherInput.Value() != "" {
 				m.themeSwitcherInput.SetValue("")
-				m.themeSwitcherFiltered = styles.ListThemes()
-				m.themeSwitcherSelectedIdx = 0
+				m.themeSwitcherFiltered = buildUnifiedThemeList()
 				m.themeSwitcherSelectedIdx = 0
 				return m, nil
 			}
-			m.applyThemeFromConfig(m.themeSwitcherOriginal)
+			m.previewThemeEntry(m.themeSwitcherOriginal)
 			m.resetThemeSwitcher()
 			m.updateContext()
 			return m, nil
@@ -843,17 +826,6 @@ func (m *Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	// Handle theme switcher modal keys (Esc handled above)
 	if m.showThemeSwitcher {
-		// Tab toggles between built-in and community views
-		if msg.String() == "tab" {
-			if m.showCommunityBrowser {
-				m.applyThemeFromConfig(m.communityBrowserOriginal)
-				m.resetCommunityBrowser()
-			} else {
-				m.initCommunityBrowser()
-			}
-			return m, nil
-		}
-
 		// ctrl+s or left/right toggles scope between global and project
 		if m.currentProjectConfig() != nil {
 			switch msg.String() {
@@ -867,20 +839,21 @@ func (m *Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 
-		// Community browser sub-mode handles its own keys
-		if m.showCommunityBrowser {
-			return m.handleCommunityBrowserKey(msg)
-		}
-
 		themes := m.themeSwitcherFiltered
 
 		switch msg.Type {
 		case tea.KeyEnter:
-			// Confirm selection and close
-			if m.themeSwitcherSelectedIdx >= 0 && m.themeSwitcherSelectedIdx < len(themes) {
-				selectedTheme := themes[m.themeSwitcherSelectedIdx]
-				tc := config.ThemeConfig{Name: selectedTheme}
-				return m, m.confirmThemeSelection(tc, selectedTheme)
+			// Confirm selection and close (ignore separators)
+			if m.themeSwitcherSelectedIdx >= 0 && m.themeSwitcherSelectedIdx < len(themes) && !themes[m.themeSwitcherSelectedIdx].IsSeparator {
+				entry := themes[m.themeSwitcherSelectedIdx]
+				var tc config.ThemeConfig
+				if entry.IsBuiltIn {
+					tc = config.ThemeConfig{Name: entry.ThemeKey}
+				} else {
+					tc = config.ThemeConfig{Name: "default", Community: entry.ThemeKey}
+				}
+				m.previewThemeEntry(entry)
+				return m, m.confirmThemeSelection(tc, entry.Name)
 			}
 			return m, nil
 
@@ -889,10 +862,12 @@ func (m *Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.themeSwitcherSelectedIdx < 0 {
 				m.themeSwitcherSelectedIdx = 0
 			}
-			m.themeSwitcherSelectedIdx = themeSwitcherEnsureCursorVisible(m.themeSwitcherSelectedIdx, m.themeSwitcherSelectedIdx, 8)
-			// Live preview
-			if m.themeSwitcherSelectedIdx < len(themes) {
-				m.applyThemeFromConfig(themes[m.themeSwitcherSelectedIdx])
+			// Skip separators
+			for m.themeSwitcherSelectedIdx > 0 && themes[m.themeSwitcherSelectedIdx].IsSeparator {
+				m.themeSwitcherSelectedIdx--
+			}
+			if m.themeSwitcherSelectedIdx < len(themes) && !themes[m.themeSwitcherSelectedIdx].IsSeparator {
+				m.previewThemeEntry(themes[m.themeSwitcherSelectedIdx])
 			}
 			return m, nil
 
@@ -904,10 +879,12 @@ func (m *Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.themeSwitcherSelectedIdx < 0 {
 				m.themeSwitcherSelectedIdx = 0
 			}
-			m.themeSwitcherSelectedIdx = themeSwitcherEnsureCursorVisible(m.themeSwitcherSelectedIdx, m.themeSwitcherSelectedIdx, 8)
-			// Live preview
-			if m.themeSwitcherSelectedIdx < len(themes) {
-				m.applyThemeFromConfig(themes[m.themeSwitcherSelectedIdx])
+			// Skip separators
+			for m.themeSwitcherSelectedIdx < len(themes)-1 && themes[m.themeSwitcherSelectedIdx].IsSeparator {
+				m.themeSwitcherSelectedIdx++
+			}
+			if m.themeSwitcherSelectedIdx < len(themes) && !themes[m.themeSwitcherSelectedIdx].IsSeparator {
+				m.previewThemeEntry(themes[m.themeSwitcherSelectedIdx])
 			}
 			return m, nil
 		}
@@ -922,9 +899,11 @@ func (m *Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.themeSwitcherSelectedIdx < 0 {
 				m.themeSwitcherSelectedIdx = 0
 			}
-			m.themeSwitcherSelectedIdx = themeSwitcherEnsureCursorVisible(m.themeSwitcherSelectedIdx, m.themeSwitcherSelectedIdx, 8)
-			if m.themeSwitcherSelectedIdx < len(themes) {
-				m.applyThemeFromConfig(themes[m.themeSwitcherSelectedIdx])
+			for m.themeSwitcherSelectedIdx < len(themes)-1 && themes[m.themeSwitcherSelectedIdx].IsSeparator {
+				m.themeSwitcherSelectedIdx++
+			}
+			if m.themeSwitcherSelectedIdx < len(themes) && !themes[m.themeSwitcherSelectedIdx].IsSeparator {
+				m.previewThemeEntry(themes[m.themeSwitcherSelectedIdx])
 			}
 			return m, nil
 
@@ -933,15 +912,17 @@ func (m *Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			if m.themeSwitcherSelectedIdx < 0 {
 				m.themeSwitcherSelectedIdx = 0
 			}
-			m.themeSwitcherSelectedIdx = themeSwitcherEnsureCursorVisible(m.themeSwitcherSelectedIdx, m.themeSwitcherSelectedIdx, 8)
-			if m.themeSwitcherSelectedIdx < len(themes) {
-				m.applyThemeFromConfig(themes[m.themeSwitcherSelectedIdx])
+			for m.themeSwitcherSelectedIdx > 0 && themes[m.themeSwitcherSelectedIdx].IsSeparator {
+				m.themeSwitcherSelectedIdx--
+			}
+			if m.themeSwitcherSelectedIdx < len(themes) && !themes[m.themeSwitcherSelectedIdx].IsSeparator {
+				m.previewThemeEntry(themes[m.themeSwitcherSelectedIdx])
 			}
 			return m, nil
 
 		case "#":
 			// Close modal and restore original
-			m.applyThemeFromConfig(m.themeSwitcherOriginal)
+			m.previewThemeEntry(m.themeSwitcherOriginal)
 			m.resetThemeSwitcher()
 			m.updateContext()
 			return m, nil
@@ -957,7 +938,7 @@ func (m *Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.themeSwitcherInput, cmd = m.themeSwitcherInput.Update(msg)
 
 		// Re-filter on input change
-		m.themeSwitcherFiltered = filterThemes(styles.ListThemes(), m.themeSwitcherInput.Value())
+		m.themeSwitcherFiltered = filterThemeEntries(buildUnifiedThemeList(), m.themeSwitcherInput.Value())
 		m.clearThemeSwitcherModal() // Force modal rebuild
 		if m.themeSwitcherSelectedIdx >= len(m.themeSwitcherFiltered) {
 			m.themeSwitcherSelectedIdx = len(m.themeSwitcherFiltered) - 1
@@ -966,9 +947,9 @@ func (m *Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.themeSwitcherSelectedIdx = 0
 		}
 
-		// Live preview current selection
-		if m.themeSwitcherSelectedIdx >= 0 && m.themeSwitcherSelectedIdx < len(m.themeSwitcherFiltered) {
-			m.applyThemeFromConfig(m.themeSwitcherFiltered[m.themeSwitcherSelectedIdx])
+		// Live preview current selection (skip separators)
+		if m.themeSwitcherSelectedIdx >= 0 && m.themeSwitcherSelectedIdx < len(m.themeSwitcherFiltered) && !m.themeSwitcherFiltered[m.themeSwitcherSelectedIdx].IsSeparator {
+			m.previewThemeEntry(m.themeSwitcherFiltered[m.themeSwitcherSelectedIdx])
 		}
 
 		return m, cmd
@@ -1246,7 +1227,7 @@ func (m *Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.activeContext = "theme-switcher"
 			m.initThemeSwitcher()
 		} else {
-			m.applyThemeFromConfig(m.themeSwitcherOriginal)
+			m.previewThemeEntry(m.themeSwitcherOriginal)
 			m.resetThemeSwitcher()
 			m.updateContext()
 		}
@@ -1485,10 +1466,15 @@ func (m *Model) handleThemeSwitcherMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) 
 	case "select":
 		themes := m.themeSwitcherFiltered
 		if m.themeSwitcherSelectedIdx >= 0 && m.themeSwitcherSelectedIdx < len(themes) {
-			selectedTheme := themes[m.themeSwitcherSelectedIdx]
-			m.applyThemeFromConfig(selectedTheme)
-			tc := config.ThemeConfig{Name: selectedTheme}
-			return m, m.confirmThemeSelection(tc, selectedTheme)
+			entry := themes[m.themeSwitcherSelectedIdx]
+			m.previewThemeEntry(entry)
+			var tc config.ThemeConfig
+			if entry.IsBuiltIn {
+				tc = config.ThemeConfig{Name: entry.ThemeKey}
+			} else {
+				tc = config.ThemeConfig{Name: "default", Community: entry.ThemeKey}
+			}
+			return m, m.confirmThemeSelection(tc, entry.Name)
 		}
 	}
 	return m, nil
@@ -1925,227 +1911,6 @@ func (m *Model) handleProjectAddCommunityKeys(msg tea.KeyMsg) (tea.Model, tea.Cm
 		resolved := theme.ResolveTheme(m.cfg, m.ui.WorkDir)
 		theme.ApplyResolved(resolved)
 		return m, nil
-	}
-
-	return m, nil
-}
-
-// handleCommunityBrowserKey handles key events in the community browser sub-mode.
-func (m *Model) handleCommunityBrowserKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	schemes := m.communityBrowserFiltered
-	const maxVisible = 8
-
-	switch msg.Type {
-	case tea.KeyEnter:
-		if m.communityBrowserCursor >= 0 && m.communityBrowserCursor < len(schemes) {
-			selectedName := schemes[m.communityBrowserCursor]
-			scheme := community.GetScheme(selectedName)
-			if scheme != nil {
-				theme.ApplyResolved(theme.ResolvedTheme{
-					BaseName:      "default",
-					CommunityName: selectedName,
-				})
-				tc := config.ThemeConfig{Name: "default", Community: selectedName}
-				return m, m.confirmThemeSelection(tc, selectedName)
-			}
-		}
-		return m, nil
-
-	case tea.KeyUp:
-		m.communityBrowserCursor--
-		if m.communityBrowserCursor < 0 {
-			m.communityBrowserCursor = 0
-		}
-		m.communityBrowserScroll = themeSwitcherEnsureCursorVisible(m.communityBrowserCursor, m.communityBrowserScroll, maxVisible)
-		m.previewCommunityScheme()
-		return m, nil
-
-	case tea.KeyDown:
-		m.communityBrowserCursor++
-		if m.communityBrowserCursor >= len(schemes) {
-			m.communityBrowserCursor = len(schemes) - 1
-		}
-		if m.communityBrowserCursor < 0 {
-			m.communityBrowserCursor = 0
-		}
-		m.communityBrowserScroll = themeSwitcherEnsureCursorVisible(m.communityBrowserCursor, m.communityBrowserScroll, maxVisible)
-		m.previewCommunityScheme()
-		return m, nil
-	}
-
-	switch msg.String() {
-	case "ctrl+n":
-		m.communityBrowserCursor++
-		if m.communityBrowserCursor >= len(schemes) {
-			m.communityBrowserCursor = len(schemes) - 1
-		}
-		if m.communityBrowserCursor < 0 {
-			m.communityBrowserCursor = 0
-		}
-		m.communityBrowserScroll = themeSwitcherEnsureCursorVisible(m.communityBrowserCursor, m.communityBrowserScroll, maxVisible)
-		m.previewCommunityScheme()
-		return m, nil
-
-	case "ctrl+p":
-		m.communityBrowserCursor--
-		if m.communityBrowserCursor < 0 {
-			m.communityBrowserCursor = 0
-		}
-		m.communityBrowserScroll = themeSwitcherEnsureCursorVisible(m.communityBrowserCursor, m.communityBrowserScroll, maxVisible)
-		m.previewCommunityScheme()
-		return m, nil
-
-	case "#":
-		// Close both modals and restore
-		m.applyThemeFromConfig(m.communityBrowserOriginal)
-		m.resetCommunityBrowser()
-		m.resetThemeSwitcher()
-		m.updateContext()
-		return m, nil
-	}
-
-	// Filter out unparsed mouse escape sequences
-	if isMouseEscapeSequence(msg) {
-		return m, nil
-	}
-
-	// Forward other keys to text input for filtering
-	var cmd tea.Cmd
-	m.communityBrowserInput, cmd = m.communityBrowserInput.Update(msg)
-
-	// Re-filter on input change
-	m.communityBrowserFiltered = filterCommunitySchemes(community.ListSchemes(), m.communityBrowserInput.Value())
-	m.communityBrowserHover = -1
-	if m.communityBrowserCursor >= len(m.communityBrowserFiltered) {
-		m.communityBrowserCursor = len(m.communityBrowserFiltered) - 1
-	}
-	if m.communityBrowserCursor < 0 {
-		m.communityBrowserCursor = 0
-	}
-	m.communityBrowserScroll = themeSwitcherEnsureCursorVisible(m.communityBrowserCursor, 0, maxVisible)
-	m.previewCommunityScheme()
-
-	return m, cmd
-}
-
-// previewCommunityScheme applies the currently selected community scheme for live preview.
-func (m *Model) previewCommunityScheme() {
-	schemes := m.communityBrowserFiltered
-	if m.communityBrowserCursor >= 0 && m.communityBrowserCursor < len(schemes) {
-		theme.ApplyResolved(theme.ResolvedTheme{
-			BaseName:      "default",
-			CommunityName: schemes[m.communityBrowserCursor],
-		})
-	}
-}
-
-// handleCommunityBrowserMouse handles mouse events for the community browser modal.
-func (m *Model) handleCommunityBrowserMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
-	schemes := m.communityBrowserFiltered
-	maxVisible := 8
-	visibleCount := len(schemes)
-	if visibleCount > maxVisible {
-		visibleCount = maxVisible
-	}
-
-	// Modal dimensions matching view rendering
-	modalContentLines := 2 + 1 + 1 + visibleCount + 2
-	if m.communityBrowserScroll > 0 {
-		modalContentLines++
-	}
-	if len(schemes) > m.communityBrowserScroll+visibleCount {
-		modalContentLines++
-	}
-	if len(schemes) == 0 {
-		modalContentLines = 2 + 1 + 1 + 2 + 2
-	}
-
-	modalHeight := modalContentLines + 4
-	modalWidth := 50
-	modalX := (m.width - modalWidth) / 2
-	modalY := (m.height - modalHeight) / 2
-
-	// Inside modal
-	if msg.X >= modalX && msg.X < modalX+modalWidth &&
-		msg.Y >= modalY && msg.Y < modalY+modalHeight {
-
-		if len(schemes) == 0 {
-			return m, nil
-		}
-
-		// Calculate scheme list start Y
-		contentStartY := modalY + 2 + 2 + 1 + 1
-		if m.communityBrowserScroll > 0 {
-			contentStartY++
-		}
-
-		relY := msg.Y - contentStartY
-		if relY >= 0 && relY < visibleCount {
-			schemeIdx := m.communityBrowserScroll + relY
-			if schemeIdx >= 0 && schemeIdx < len(schemes) {
-				switch msg.Action {
-				case tea.MouseActionPress:
-					if msg.Button == tea.MouseButtonLeft {
-						selectedName := schemes[schemeIdx]
-						scheme := community.GetScheme(selectedName)
-						if scheme != nil {
-							theme.ApplyResolved(theme.ResolvedTheme{
-								BaseName:      "default",
-								CommunityName: selectedName,
-							})
-							tc := config.ThemeConfig{Name: "default", Community: selectedName}
-							return m, m.confirmThemeSelection(tc, selectedName)
-						}
-					}
-				case tea.MouseActionMotion:
-					m.communityBrowserHover = schemeIdx
-					theme.ApplyResolved(theme.ResolvedTheme{
-						BaseName:      "default",
-						CommunityName: schemes[schemeIdx],
-					})
-				}
-			}
-		} else {
-			if msg.Action == tea.MouseActionMotion {
-				m.communityBrowserHover = -1
-			}
-		}
-
-		// Scroll wheel
-		switch msg.Button {
-		case tea.MouseButtonWheelUp:
-			m.communityBrowserCursor--
-			if m.communityBrowserCursor < 0 {
-				m.communityBrowserCursor = 0
-			}
-			m.communityBrowserScroll = themeSwitcherEnsureCursorVisible(m.communityBrowserCursor, m.communityBrowserScroll, maxVisible)
-			m.previewCommunityScheme()
-		case tea.MouseButtonWheelDown:
-			m.communityBrowserCursor++
-			if m.communityBrowserCursor >= len(schemes) {
-				m.communityBrowserCursor = len(schemes) - 1
-			}
-			if m.communityBrowserCursor < 0 {
-				m.communityBrowserCursor = 0
-			}
-			m.communityBrowserScroll = themeSwitcherEnsureCursorVisible(m.communityBrowserCursor, m.communityBrowserScroll, maxVisible)
-			m.previewCommunityScheme()
-		}
-
-		return m, nil
-	}
-
-	// Click outside modal - cancel
-	if msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft {
-		m.applyThemeFromConfig(m.communityBrowserOriginal)
-		m.resetCommunityBrowser()
-		m.resetThemeSwitcher()
-		m.updateContext()
-		return m, nil
-	}
-
-	if msg.Action == tea.MouseActionMotion {
-		m.communityBrowserHover = -1
 	}
 
 	return m, nil
