@@ -22,6 +22,9 @@ func (m *Model) renderIssueInputOverlay(content string) string {
 	return ui.OverlayModal(content, rendered, m.width, m.height)
 }
 
+// issueSearchResultPrefix is the hit-region ID prefix for clickable search results.
+const issueSearchResultPrefix = "issue-search-"
+
 func (m *Model) ensureIssueInputModal() {
 	modalW := 60
 	if modalW > m.width-4 {
@@ -48,6 +51,7 @@ func (m *Model) ensureIssueInputModal() {
 		searchCursor := m.issueSearchCursor
 		b = b.AddSection(modal.Custom(func(contentWidth int, focusID, hoverID string) modal.RenderedSection {
 			var sb strings.Builder
+			focusables := make([]modal.FocusableInfo, 0, len(searchResults))
 			for i, r := range searchResults {
 				if i >= 10 {
 					break
@@ -56,7 +60,9 @@ func (m *Model) ensureIssueInputModal() {
 				if len(line) > contentWidth-2 {
 					line = line[:contentWidth-5] + "..."
 				}
-				if i == searchCursor {
+				itemID := fmt.Sprintf("%s%d", issueSearchResultPrefix, i)
+				isHovered := itemID == hoverID
+				if i == searchCursor || isHovered {
 					sb.WriteString(styles.ListItemSelected.Render(line))
 				} else {
 					sb.WriteString(styles.ListItemNormal.Render(line))
@@ -64,10 +70,24 @@ func (m *Model) ensureIssueInputModal() {
 				if i < len(searchResults)-1 && i < 9 {
 					sb.WriteString("\n")
 				}
+				focusables = append(focusables, modal.FocusableInfo{
+					ID:      itemID,
+					OffsetX: 0,
+					OffsetY: i,
+					Width:   contentWidth,
+					Height:  1,
+				})
 			}
-			return modal.RenderedSection{Content: sb.String()}
+			return modal.RenderedSection{Content: sb.String(), Focusables: focusables}
 		}, nil))
 	}
+
+	// Buttons
+	b = b.AddSection(modal.Spacer())
+	b = b.AddSection(modal.Buttons(
+		modal.Btn(" Open ", "open", modal.BtnPrimary()),
+		modal.Btn(" Cancel ", "cancel"),
+	))
 
 	// Hint line
 	hasResults := len(m.issueSearchResults) > 0

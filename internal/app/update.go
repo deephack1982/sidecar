@@ -3,6 +3,7 @@ package app
 import (
 	"fmt"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -989,32 +990,7 @@ func (m *Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.showIssueInput {
 		switch msg.Type {
 		case tea.KeyEnter:
-			var issueID string
-			if m.issueSearchCursor >= 0 && m.issueSearchCursor < len(m.issueSearchResults) {
-				issueID = m.issueSearchResults[m.issueSearchCursor].ID
-			} else {
-				issueID = strings.TrimSpace(m.issueInputInput.Value())
-			}
-			if issueID != "" {
-				m.resetIssueInput()
-				// Check if active plugin is TD monitor — go directly to rich modal
-				if p := m.ActivePlugin(); p != nil && p.ID() == "td-monitor" {
-					m.updateContext()
-					return m, tea.Batch(
-						func() tea.Msg { return OpenFullIssueMsg{IssueID: issueID} },
-					)
-				}
-				// Otherwise show lightweight preview (clear stale state)
-				m.showIssuePreview = true
-				m.issuePreviewLoading = true
-				m.issuePreviewData = nil
-				m.issuePreviewError = nil
-				m.issuePreviewModal = nil
-				m.issuePreviewModalWidth = 0
-				m.issuePreviewMouseHandler = mouse.NewHandler()
-				return m, fetchIssuePreviewCmd(issueID)
-			}
-			return m, nil
+			return m.issueInputSubmit()
 		case tea.KeyUp:
 			if len(m.issueSearchResults) > 0 {
 				m.issueSearchCursor--
@@ -1041,8 +1017,9 @@ func (m *Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.issueInputInput.CursorEnd()
 				m.issueInputModal = nil
 				m.issueInputModalWidth = 0
-				return m, nil
 			}
+			// Tab is consumed (fill-in or no-op) — don't forward to textinput
+			return m, nil
 		}
 
 		if isMouseEscapeSequence(msg) {
@@ -2129,6 +2106,37 @@ func (m *Model) handleCommunityBrowserMouse(msg tea.MouseMsg) (tea.Model, tea.Cm
 	return m, nil
 }
 
+// issueInputSubmit resolves the current issue input (selected result or typed ID)
+// and either opens the full issue in TD monitor or shows a lightweight preview.
+func (m *Model) issueInputSubmit() (tea.Model, tea.Cmd) {
+	var issueID string
+	if m.issueSearchCursor >= 0 && m.issueSearchCursor < len(m.issueSearchResults) {
+		issueID = m.issueSearchResults[m.issueSearchCursor].ID
+	} else {
+		issueID = strings.TrimSpace(m.issueInputInput.Value())
+	}
+	if issueID == "" {
+		return m, nil
+	}
+	m.resetIssueInput()
+	// Check if active plugin is TD monitor — go directly to rich modal
+	if p := m.ActivePlugin(); p != nil && p.ID() == "td-monitor" {
+		m.updateContext()
+		return m, tea.Batch(
+			func() tea.Msg { return OpenFullIssueMsg{IssueID: issueID} },
+		)
+	}
+	// Otherwise show lightweight preview (clear stale state)
+	m.showIssuePreview = true
+	m.issuePreviewLoading = true
+	m.issuePreviewData = nil
+	m.issuePreviewError = nil
+	m.issuePreviewModal = nil
+	m.issuePreviewModalWidth = 0
+	m.issuePreviewMouseHandler = mouse.NewHandler()
+	return m, fetchIssuePreviewCmd(issueID)
+}
+
 // handleIssueInputMouse handles mouse events for the issue input modal.
 func (m *Model) handleIssueInputMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	m.ensureIssueInputModal()
@@ -2143,9 +2151,19 @@ func (m *Model) handleIssueInputMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	// pointer, so the modal object seen here may lack focusIDs from a prior Render.
 	m.issueInputModal.Render(m.width, m.height, m.issueInputMouseHandler)
 	action := m.issueInputModal.HandleMouse(msg, m.issueInputMouseHandler)
-	if action == "cancel" {
+	switch {
+	case action == "cancel":
 		m.resetIssueInput()
 		m.updateContext()
+	case action == "open":
+		return m.issueInputSubmit()
+	case strings.HasPrefix(action, issueSearchResultPrefix):
+		// Click on a search result — select it and submit
+		idxStr := strings.TrimPrefix(action, issueSearchResultPrefix)
+		if idx, err := strconv.Atoi(idxStr); err == nil && idx >= 0 && idx < len(m.issueSearchResults) {
+			m.issueSearchCursor = idx
+			return m.issueInputSubmit()
+		}
 	}
 	return m, nil
 }

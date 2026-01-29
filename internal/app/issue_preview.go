@@ -3,6 +3,8 @@ package app
 import (
 	"encoding/json"
 	"os/exec"
+	"sort"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -18,8 +20,11 @@ type IssueSearchResult struct {
 
 // tdSearchResultWrapper wraps td search JSON output: {"Issue": {...}, "Score": N}.
 type tdSearchResultWrapper struct {
-	Issue IssueSearchResult `json:"Issue"`
-	Score int               `json:"Score"`
+	Issue struct {
+		IssueSearchResult
+		UpdatedAt string `json:"updated_at"`
+	} `json:"Issue"`
+	Score int `json:"Score"`
 }
 
 // IssueSearchResultMsg carries search results back to the app.
@@ -40,9 +45,15 @@ func issueSearchCmd(query string) tea.Cmd {
 		if err := json.Unmarshal(out, &wrappers); err != nil {
 			return IssueSearchResultMsg{Query: query, Error: err}
 		}
+		// Sort by updated_at descending (most recently updated first).
+		sort.Slice(wrappers, func(i, j int) bool {
+			ti, _ := time.Parse(time.RFC3339Nano, wrappers[i].Issue.UpdatedAt)
+			tj, _ := time.Parse(time.RFC3339Nano, wrappers[j].Issue.UpdatedAt)
+			return ti.After(tj)
+		})
 		results := make([]IssueSearchResult, len(wrappers))
 		for i, w := range wrappers {
-			results[i] = w.Issue
+			results[i] = w.Issue.IssueSearchResult
 		}
 		return IssueSearchResultMsg{Query: query, Results: results}
 	}
