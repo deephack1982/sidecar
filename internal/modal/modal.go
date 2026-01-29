@@ -14,6 +14,7 @@ type Modal struct {
 	showHints       bool
 	primaryAction   string
 	closeOnBackdrop bool
+	customFooter    string // Fixed footer rendered outside scroll viewport
 
 	// State (managed internally)
 	focusIdx     int      // Current focused element index in focusIDs
@@ -149,6 +150,17 @@ func (m *Modal) HandleMouse(msg tea.MouseMsg, handler *mouse.Handler) string {
 
 	return ""
 }
+
+// ScrollBy adjusts the scroll offset by delta lines (positive = down, negative = up).
+// Clamping to valid range happens in buildLayout.
+func (m *Modal) ScrollBy(delta int) { m.scrollOffset += delta }
+
+// ScrollToTop scrolls to the top of the content.
+func (m *Modal) ScrollToTop() { m.scrollOffset = 0 }
+
+// ScrollToBottom scrolls to the bottom of the content.
+// The offset is clamped to the actual max in buildLayout.
+func (m *Modal) ScrollToBottom() { m.scrollOffset = 999999 }
 
 // SetFocus sets focus to a specific element by ID.
 func (m *Modal) SetFocus(id string) {

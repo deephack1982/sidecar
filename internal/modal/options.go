@@ -49,6 +49,13 @@ func WithCloseOnBackdropClick(close bool) Option {
 	}
 }
 
+// WithCustomFooter sets a fixed footer line rendered outside the scroll viewport.
+func WithCustomFooter(footer string) Option {
+	return func(m *Modal) {
+		m.customFooter = footer
+	}
+}
+
 // Default modal dimensions
 const (
 	DefaultWidth  = 50

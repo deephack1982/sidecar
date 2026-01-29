@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/marcus/sidecar/internal/markdown"
 	"github.com/marcus/sidecar/internal/modal"
 	"github.com/marcus/sidecar/internal/mouse"
 	"github.com/marcus/sidecar/internal/styles"
@@ -214,10 +215,26 @@ func (m *Model) ensureIssuePreviewModal() {
 	}
 	statusLine := strings.Join(metaParts, "  ")
 
+	// Build fixed footer hint string
+	var hintBuf strings.Builder
+	hintBuf.WriteString(styles.KeyHint.Render("j/k"))
+	hintBuf.WriteString(styles.Muted.Render(" scroll  "))
+	hintBuf.WriteString(styles.KeyHint.Render("o"))
+	hintBuf.WriteString(styles.Muted.Render(" open  "))
+	hintBuf.WriteString(styles.KeyHint.Render("b"))
+	hintBuf.WriteString(styles.Muted.Render(" back  "))
+	hintBuf.WriteString(styles.KeyHint.Render("y"))
+	hintBuf.WriteString(styles.Muted.Render(" yank  "))
+	hintBuf.WriteString(styles.KeyHint.Render("Y"))
+	hintBuf.WriteString(styles.Muted.Render(" yank key  "))
+	hintBuf.WriteString(styles.KeyHint.Render("esc"))
+	hintBuf.WriteString(styles.Muted.Render(" close"))
+
 	// Build modal
 	b := modal.New(title,
 		modal.WithWidth(modalW),
 		modal.WithHints(false),
+		modal.WithCustomFooter(hintBuf.String()),
 	)
 
 	if statusLine != "" {
@@ -232,21 +249,15 @@ func (m *Model) ensureIssuePreviewModal() {
 		b = b.AddSection(modal.Text("Labels: " + strings.Join(data.Labels, ", ")))
 	}
 
-	// Description — scale visible lines with terminal height
-	// Reserve ~10 lines for title, meta, buttons, hints, borders
+	// Description — render as markdown, let modal scroll handle overflow
 	if data.Description != "" {
 		b = b.AddSection(modal.Spacer())
-		maxDescLines := m.height - 10
-		if maxDescLines < 5 {
-			maxDescLines = 5
-		}
 		desc := data.Description
-		lines := strings.Split(desc, "\n")
-		if len(lines) > maxDescLines {
-			lines = lines[:maxDescLines]
-			lines = append(lines, "...")
+		if renderer, err := markdown.NewRenderer(); err == nil {
+			rendered := renderer.RenderContent(desc, modalW-modal.ModalPadding)
+			desc = strings.Join(rendered, "\n")
 		}
-		b = b.AddSection(modal.Text(strings.Join(lines, "\n")))
+		b = b.AddSection(modal.Text(desc))
 	}
 
 	b = b.AddSection(modal.Spacer())
@@ -255,23 +266,6 @@ func (m *Model) ensureIssuePreviewModal() {
 		modal.Btn(" Back ", "back"),
 		modal.Btn(" Close ", "cancel"),
 	))
-
-	// Hint line
-	b = b.AddSection(modal.Custom(func(contentWidth int, focusID, hoverID string) modal.RenderedSection {
-		var sb strings.Builder
-		sb.WriteString("\n")
-		sb.WriteString(styles.KeyHint.Render("o"))
-		sb.WriteString(styles.Muted.Render(" open  "))
-		sb.WriteString(styles.KeyHint.Render("b"))
-		sb.WriteString(styles.Muted.Render(" back  "))
-		sb.WriteString(styles.KeyHint.Render("y"))
-		sb.WriteString(styles.Muted.Render(" yank  "))
-		sb.WriteString(styles.KeyHint.Render("Y"))
-		sb.WriteString(styles.Muted.Render(" yank key  "))
-		sb.WriteString(styles.KeyHint.Render("esc"))
-		sb.WriteString(styles.Muted.Render(" close"))
-		return modal.RenderedSection{Content: sb.String()}
-	}, nil))
 
 	m.issuePreviewModal = b
 }

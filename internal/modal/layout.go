@@ -84,6 +84,9 @@ func (m *Modal) buildLayout(screenW, screenH int, handler *mouse.Handler) string
 		headerLines = 2 // title + blank line
 	}
 	footerLines := hintLines(m.showHints)
+	if m.customFooter != "" {
+		footerLines += strings.Count(m.customFooter, "\n") + 1
+	}
 	maxViewportHeight := max(1, modalInnerHeight-headerLines-footerLines)
 
 	viewportHeight := maxViewportHeight
@@ -110,6 +113,10 @@ func (m *Modal) buildLayout(screenW, screenH int, handler *mouse.Handler) string
 	if m.showHints {
 		inner.WriteString("\n")
 		inner.WriteString(renderHintLine())
+	}
+	if m.customFooter != "" {
+		inner.WriteString("\n")
+		inner.WriteString(m.customFooter)
 	}
 
 	// 5. Apply modal style

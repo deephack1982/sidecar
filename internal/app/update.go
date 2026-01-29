@@ -1061,6 +1061,24 @@ func (m *Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 		// Shortcuts before modal.HandleKey (which consumes Enter/Esc/Tab)
 		switch msg.String() {
+		case "j", "down":
+			m.issuePreviewModal.ScrollBy(1)
+			return m, nil
+		case "k", "up":
+			m.issuePreviewModal.ScrollBy(-1)
+			return m, nil
+		case "ctrl+d":
+			m.issuePreviewModal.ScrollBy(10)
+			return m, nil
+		case "ctrl+u":
+			m.issuePreviewModal.ScrollBy(-10)
+			return m, nil
+		case "g":
+			m.issuePreviewModal.ScrollToTop()
+			return m, nil
+		case "G":
+			m.issuePreviewModal.ScrollToBottom()
+			return m, nil
 		case "o":
 			if m.issuePreviewData != nil {
 				issueID := m.issuePreviewData.ID
