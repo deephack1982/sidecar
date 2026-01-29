@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/atotto/clipboard"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/marcus/sidecar/internal/community"
 	"github.com/marcus/sidecar/internal/config"
@@ -478,6 +479,7 @@ func (m *Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case ModalIssuePreview:
 			m.resetIssuePreview()
+			m.resetIssueInput()
 			m.updateContext()
 			return m, nil
 		case ModalThemeSwitcher:
@@ -1037,7 +1039,8 @@ func (m *Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if newValue != m.issueSearchQuery && len(newValue) >= 2 {
 			m.issueSearchQuery = newValue
 			m.issueSearchLoading = true
-			m.issueSearchResults = nil
+			// Keep previous results visible while loading to avoid modal shrink/grow flicker.
+			// Results are replaced when the new IssueSearchResultMsg arrives.
 			m.issueSearchCursor = -1
 			return m, tea.Batch(cmd, issueSearchCmd(newValue))
 		}
@@ -1056,15 +1059,39 @@ func (m *Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		// "o" shortcut to open in TD
-		if msg.String() == "o" && m.issuePreviewData != nil {
-			issueID := m.issuePreviewData.ID
-			m.resetIssuePreview()
-			m.updateContext()
-			return m, tea.Batch(
-				FocusPlugin("td-monitor"),
-				func() tea.Msg { return OpenFullIssueMsg{IssueID: issueID} },
-			)
+		// Shortcuts before modal.HandleKey (which consumes Enter/Esc/Tab)
+		switch msg.String() {
+		case "o":
+			if m.issuePreviewData != nil {
+				issueID := m.issuePreviewData.ID
+				m.resetIssuePreview()
+				m.resetIssueInput()
+				m.updateContext()
+				return m, tea.Batch(
+					FocusPlugin("td-monitor"),
+					func() tea.Msg { return OpenFullIssueMsg{IssueID: issueID} },
+				)
+			}
+		case "b":
+			m.backToIssueInput()
+			return m, nil
+		case "y":
+			if m.issuePreviewData != nil {
+				d := m.issuePreviewData
+				text := d.ID + ": " + d.Title + "\n\n" + d.Description
+				if err := clipboard.WriteAll(text); err != nil {
+					return m, ShowToast("Copy failed: "+err.Error(), 2*time.Second)
+				}
+				return m, ShowToast("Yanked issue details", 2*time.Second)
+			}
+		case "Y":
+			if m.issuePreviewData != nil {
+				id := m.issuePreviewData.ID
+				if err := clipboard.WriteAll(id); err != nil {
+					return m, ShowToast("Copy failed: "+err.Error(), 2*time.Second)
+				}
+				return m, ShowToast("Yanked: "+id, 2*time.Second)
+			}
 		}
 
 		action, cmd := m.issuePreviewModal.HandleKey(msg)
@@ -1075,6 +1102,7 @@ func (m *Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				issueID = m.issuePreviewData.ID
 			}
 			m.resetIssuePreview()
+			m.resetIssueInput()
 			m.updateContext()
 			if issueID != "" {
 				return m, tea.Batch(
@@ -1083,8 +1111,12 @@ func (m *Model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				)
 			}
 			return m, nil
+		case "back":
+			m.backToIssueInput()
+			return m, nil
 		case "cancel":
 			m.resetIssuePreview()
+			m.resetIssueInput()
 			m.updateContext()
 			return m, nil
 		}
@@ -2118,16 +2150,19 @@ func (m *Model) issueInputSubmit() (tea.Model, tea.Cmd) {
 	if issueID == "" {
 		return m, nil
 	}
-	m.resetIssueInput()
 	// Check if active plugin is TD monitor — go directly to rich modal
 	if p := m.ActivePlugin(); p != nil && p.ID() == "td-monitor" {
+		m.resetIssueInput()
 		m.updateContext()
 		return m, tea.Batch(
 			func() tea.Msg { return OpenFullIssueMsg{IssueID: issueID} },
 		)
 	}
-	// Otherwise show lightweight preview (clear stale state)
+	// Hide input modal but preserve search state so "back" can restore it.
+	m.showIssueInput = false
+	// Show lightweight preview
 	m.showIssuePreview = true
+	m.activeContext = "issue-preview"
 	m.issuePreviewLoading = true
 	m.issuePreviewData = nil
 	m.issuePreviewError = nil
@@ -2184,13 +2219,18 @@ func (m *Model) handleIssuePreviewMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	switch action {
 	case "cancel":
 		m.resetIssuePreview()
+		m.resetIssueInput()
 		m.updateContext()
+	case "back":
+		m.backToIssueInput()
+		return m, nil
 	case "open-in-td":
 		issueID := ""
 		if m.issuePreviewData != nil {
 			issueID = m.issuePreviewData.ID
 		}
 		m.resetIssuePreview()
+		m.resetIssueInput()
 		m.updateContext()
 		if issueID != "" {
 			return m, tea.Batch(

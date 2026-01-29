@@ -43,19 +43,27 @@ func (m *Model) ensureIssueInputModal() {
 	).
 		AddSection(modal.Input("issue-id", &m.issueInputInput))
 
-	// Show search results dropdown
+	// Status line — always present to avoid layout jumps
 	if m.issueSearchLoading {
 		b = b.AddSection(modal.Text(styles.Muted.Render("Searching...")))
-	} else if len(m.issueSearchResults) > 0 {
+	} else {
+		b = b.AddSection(modal.Text(styles.Muted.Render(" ")))
+	}
+
+	// Search results dropdown — reserve minResultLines to reduce jumpiness
+	const minResultLines = 5
+	if len(m.issueSearchResults) > 0 {
 		searchResults := m.issueSearchResults
 		searchCursor := m.issueSearchCursor
 		b = b.AddSection(modal.Custom(func(contentWidth int, focusID, hoverID string) modal.RenderedSection {
 			var sb strings.Builder
 			focusables := make([]modal.FocusableInfo, 0, len(searchResults))
-			for i, r := range searchResults {
-				if i >= 10 {
-					break
-				}
+			displayed := len(searchResults)
+			if displayed > 10 {
+				displayed = 10
+			}
+			for i := 0; i < displayed; i++ {
+				r := searchResults[i]
 				line := fmt.Sprintf("  %s  %s", r.ID, r.Title)
 				if len(line) > contentWidth-2 {
 					line = line[:contentWidth-5] + "..."
@@ -67,7 +75,7 @@ func (m *Model) ensureIssueInputModal() {
 				} else {
 					sb.WriteString(styles.ListItemNormal.Render(line))
 				}
-				if i < len(searchResults)-1 && i < 9 {
+				if i < displayed-1 {
 					sb.WriteString("\n")
 				}
 				focusables = append(focusables, modal.FocusableInfo{
@@ -78,7 +86,22 @@ func (m *Model) ensureIssueInputModal() {
 					Height:  1,
 				})
 			}
+			// Pad with empty lines to maintain minimum height
+			for i := displayed; i < minResultLines; i++ {
+				sb.WriteString("\n")
+			}
 			return modal.RenderedSection{Content: sb.String(), Focusables: focusables}
+		}, nil))
+	} else {
+		// Reserve space for results even when empty
+		b = b.AddSection(modal.Custom(func(contentWidth int, _, _ string) modal.RenderedSection {
+			var sb strings.Builder
+			for i := 0; i < minResultLines; i++ {
+				if i > 0 {
+					sb.WriteString("\n")
+				}
+			}
+			return modal.RenderedSection{Content: sb.String()}
 		}, nil))
 	}
 
@@ -123,12 +146,13 @@ func (m *Model) renderIssuePreviewOverlay(content string) string {
 }
 
 func (m *Model) ensureIssuePreviewModal() {
-	modalW := 60
+	// Use 80% of terminal width so the issue is comfortable to read
+	modalW := m.width * 4 / 5
 	if modalW > m.width-4 {
 		modalW = m.width - 4
 	}
-	if modalW < 20 {
-		modalW = 20
+	if modalW < 30 {
+		modalW = 30
 	}
 
 	// Cache check -- also invalidate when data/error/loading changes
@@ -208,13 +232,18 @@ func (m *Model) ensureIssuePreviewModal() {
 		b = b.AddSection(modal.Text("Labels: " + strings.Join(data.Labels, ", ")))
 	}
 
-	// Description snippet (first ~10 lines)
+	// Description — scale visible lines with terminal height
+	// Reserve ~10 lines for title, meta, buttons, hints, borders
 	if data.Description != "" {
 		b = b.AddSection(modal.Spacer())
+		maxDescLines := m.height - 10
+		if maxDescLines < 5 {
+			maxDescLines = 5
+		}
 		desc := data.Description
 		lines := strings.Split(desc, "\n")
-		if len(lines) > 10 {
-			lines = lines[:10]
+		if len(lines) > maxDescLines {
+			lines = lines[:maxDescLines]
 			lines = append(lines, "...")
 		}
 		b = b.AddSection(modal.Text(strings.Join(lines, "\n")))
@@ -223,6 +252,7 @@ func (m *Model) ensureIssuePreviewModal() {
 	b = b.AddSection(modal.Spacer())
 	b = b.AddSection(modal.Buttons(
 		modal.Btn(" Open in TD ", "open-in-td", modal.BtnPrimary()),
+		modal.Btn(" Back ", "back"),
 		modal.Btn(" Close ", "cancel"),
 	))
 
@@ -232,6 +262,12 @@ func (m *Model) ensureIssuePreviewModal() {
 		sb.WriteString("\n")
 		sb.WriteString(styles.KeyHint.Render("o"))
 		sb.WriteString(styles.Muted.Render(" open  "))
+		sb.WriteString(styles.KeyHint.Render("b"))
+		sb.WriteString(styles.Muted.Render(" back  "))
+		sb.WriteString(styles.KeyHint.Render("y"))
+		sb.WriteString(styles.Muted.Render(" yank  "))
+		sb.WriteString(styles.KeyHint.Render("Y"))
+		sb.WriteString(styles.Muted.Render(" yank key  "))
 		sb.WriteString(styles.KeyHint.Render("esc"))
 		sb.WriteString(styles.Muted.Render(" close"))
 		return modal.RenderedSection{Content: sb.String()}

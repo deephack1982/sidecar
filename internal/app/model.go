@@ -1074,6 +1074,18 @@ func (m *Model) resetIssuePreview() {
 	m.issuePreviewMouseHandler = nil
 }
 
+// backToIssueInput closes the preview and returns to the search modal
+// with the previous query, results, and cursor intact.
+func (m *Model) backToIssueInput() {
+	m.resetIssuePreview()
+	m.showIssueInput = true
+	m.activeContext = "issue-input"
+	m.issueInputInput.Focus()
+	m.issueInputModal = nil
+	m.issueInputModalWidth = 0
+	m.issueInputMouseHandler = mouse.NewHandler()
+}
+
 // initThemeSwitcher initializes the theme switcher modal.
 func (m *Model) initThemeSwitcher() {
 	m.resetCommunityBrowser()

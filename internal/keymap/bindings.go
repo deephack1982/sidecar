@@ -143,6 +143,13 @@ func DefaultBindings() []Binding {
 		{Key: "a", Command: "pull-autostash", Context: "git-pull-menu"},
 		{Key: "esc", Command: "cancel", Context: "git-pull-menu"},
 
+		// Issue preview context
+		{Key: "o", Command: "open-in-td", Context: "issue-preview"},
+		{Key: "b", Command: "issue-back", Context: "issue-preview"},
+		{Key: "y", Command: "yank-issue", Context: "issue-preview"},
+		{Key: "Y", Command: "yank-issue-key", Context: "issue-preview"},
+		{Key: "esc", Command: "close", Context: "issue-preview"},
+
 		// Git error modal context
 		{Key: "y", Command: "yank-error", Context: "git-error"},
 		{Key: "esc", Command: "dismiss", Context: "git-error"},
