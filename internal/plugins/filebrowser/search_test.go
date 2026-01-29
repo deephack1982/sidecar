@@ -673,6 +673,50 @@ func TestContentSearch_ScrollToMatch(t *testing.T) {
 	}
 }
 
+func TestContentSearch_ScrollStaysWhenMatchVisible(t *testing.T) {
+	tmpDir := t.TempDir()
+	// 100 lines with matches at lines 10, 15, 80
+	var lines []string
+	for i := 0; i < 100; i++ {
+		switch i {
+		case 10, 15, 80:
+			lines = append(lines, "MATCH here")
+		default:
+			lines = append(lines, fmt.Sprintf("line %d", i))
+		}
+	}
+	p := createTestPluginWithPreview(t, tmpDir, strings.Join(lines, "\n"))
+	p.height = 30 // visibleContentHeight = 30 - 6 = 24
+	p.contentSearchMode = true
+	p.contentSearchQuery = "MATCH"
+	p.updateContentMatches()
+
+	if len(p.contentSearchMatches) != 3 {
+		t.Fatalf("expected 3 matches, got %d", len(p.contentSearchMatches))
+	}
+
+	// First match at line 10 - should scroll (starts at 0, match is visible but
+	// updateContentMatches calls scrollToContentMatch from scratch)
+	scrollAfterFirst := p.previewScroll
+
+	// Commit and navigate to next match at line 15
+	_, _ = p.handleContentSearchKey(tea.KeyMsg{Type: tea.KeyEnter})
+	_, _ = p.handleContentSearchKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+
+	// Match at line 15 should be visible from the first match's scroll position,
+	// so viewport should NOT jump
+	if p.previewScroll != scrollAfterFirst {
+		t.Errorf("viewport should not jump when next match is visible: scroll was %d, now %d",
+			scrollAfterFirst, p.previewScroll)
+	}
+
+	// Navigate to match at line 80 - should scroll since it's off-screen
+	_, _ = p.handleContentSearchKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	if p.previewScroll == scrollAfterFirst {
+		t.Error("viewport should scroll to show match at line 80")
+	}
+}
+
 func TestContentSearch_EmptyQuery(t *testing.T) {
 	tmpDir := t.TempDir()
 	p := createTestPluginWithPreview(t, tmpDir, "test content")

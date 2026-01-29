@@ -503,6 +503,7 @@ func (p *Plugin) updateContentMatches() {
 }
 
 // scrollToContentMatch scrolls the preview to show the current match.
+// Only scrolls if the match is outside the visible viewport (vim-style).
 func (p *Plugin) scrollToContentMatch() {
 	if len(p.contentSearchMatches) == 0 || p.contentSearchCursor >= len(p.contentSearchMatches) {
 		return
@@ -511,21 +512,34 @@ func (p *Plugin) scrollToContentMatch() {
 	match := p.contentSearchMatches[p.contentSearchCursor]
 	visibleHeight := p.visibleContentHeight()
 
-	// Center the match line in viewport if possible
-	targetScroll := match.LineNo - visibleHeight/2
-	if targetScroll < 0 {
-		targetScroll = 0
-	}
-
 	maxScroll := len(p.getPreviewLines()) - visibleHeight
 	if maxScroll < 0 {
 		maxScroll = 0
 	}
-	if targetScroll > maxScroll {
-		targetScroll = maxScroll
+
+	// If match is already visible, don't scroll (avoids jarring viewport jumps)
+	scrollMargin := 2 // keep a small margin from viewport edges
+	viewTop := p.previewScroll + scrollMargin
+	viewBottom := p.previewScroll + visibleHeight - scrollMargin
+	if match.LineNo >= viewTop && match.LineNo < viewBottom {
+		return
 	}
 
-	p.previewScroll = targetScroll
+	// Match is off-screen: scroll to bring it into view
+	if match.LineNo < p.previewScroll+scrollMargin {
+		// Match is above viewport: put it near the top with margin
+		p.previewScroll = match.LineNo - scrollMargin
+	} else {
+		// Match is below viewport: put it near the bottom with margin
+		p.previewScroll = match.LineNo - visibleHeight + scrollMargin + 1
+	}
+
+	if p.previewScroll < 0 {
+		p.previewScroll = 0
+	}
+	if p.previewScroll > maxScroll {
+		p.previewScroll = maxScroll
+	}
 }
 
 // scrollToNearestMatch finds and jumps to the match nearest to the target line.
