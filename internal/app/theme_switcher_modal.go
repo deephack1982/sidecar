@@ -39,10 +39,12 @@ func buildUnifiedThemeList() []themeEntry {
 		}
 		entries = append(entries, themeEntry{Name: displayName, IsBuiltIn: true, ThemeKey: name})
 	}
-	entries = append(entries, themeEntry{
-		IsSeparator:   true,
-		SeparatorText: fmt.Sprintf("Community Themes (%d)", len(communityNames)),
-	})
+	if len(communityNames) > 0 {
+		entries = append(entries, themeEntry{
+			IsSeparator:   true,
+			SeparatorText: fmt.Sprintf("Community Themes (%d)", len(communityNames)),
+		})
+	}
 	for _, name := range communityNames {
 		entries = append(entries, themeEntry{Name: name, IsBuiltIn: false, ThemeKey: name})
 	}

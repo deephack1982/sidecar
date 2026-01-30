@@ -88,8 +88,8 @@ func GetCommitHistory(workDir string, limit int) ([]*Commit, error) {
 
 // GetCommitDetail fetches full commit info including file list.
 func GetCommitDetail(workDir, hash string) (*Commit, error) {
-	// Get commit metadata
-	format := "%H%n%h%n%an%n%ae%n%at%n%s%n%b"
+	// Get commit metadata (%P = parent hashes for merge detection)
+	format := "%H%n%h%n%an%n%ae%n%at%n%P%n%s%n%b"
 	cmd := exec.Command("git", "show", "--format="+format, "-s", hash)
 	cmd.Dir = workDir
 	output, err := cmd.Output()
@@ -97,26 +97,39 @@ func GetCommitDetail(workDir, hash string) (*Commit, error) {
 		return nil, err
 	}
 
-	lines := strings.SplitN(string(output), "\n", 7)
-	if len(lines) < 6 {
+	lines := strings.SplitN(string(output), "\n", 8)
+	if len(lines) < 7 {
 		return nil, nil
 	}
 
 	timestamp, _ := strconv.ParseInt(strings.TrimSpace(lines[4]), 10, 64)
-	commit := &Commit{
-		Hash:        strings.TrimSpace(lines[0]),
-		ShortHash:   strings.TrimSpace(lines[1]),
-		Author:      strings.TrimSpace(lines[2]),
-		AuthorEmail: strings.TrimSpace(lines[3]),
-		Date:        time.Unix(timestamp, 0),
-		Subject:     strings.TrimSpace(lines[5]),
-	}
-	if len(lines) > 6 {
-		commit.Body = strings.TrimSpace(lines[6])
+
+	// Parse parent hashes (space-separated, empty for root commits)
+	var parents []string
+	if raw := strings.TrimSpace(lines[5]); raw != "" {
+		parents = strings.Fields(raw)
 	}
 
-	// Get file stats
-	cmd = exec.Command("git", "show", "--numstat", "--format=", hash)
+	commit := &Commit{
+		Hash:         strings.TrimSpace(lines[0]),
+		ShortHash:    strings.TrimSpace(lines[1]),
+		Author:       strings.TrimSpace(lines[2]),
+		AuthorEmail:  strings.TrimSpace(lines[3]),
+		Date:         time.Unix(timestamp, 0),
+		Subject:      strings.TrimSpace(lines[6]),
+		ParentHashes: parents,
+		IsMerge:      len(parents) > 1,
+	}
+	if len(lines) > 7 {
+		commit.Body = strings.TrimSpace(lines[7])
+	}
+
+	// Get file stats — for merge commits, diff against first parent to avoid empty combined diff
+	if commit.IsMerge && len(commit.ParentHashes) > 0 {
+		cmd = exec.Command("git", "diff", "--numstat", commit.ParentHashes[0], hash)
+	} else {
+		cmd = exec.Command("git", "show", "--numstat", "--format=", hash)
+	}
 	cmd.Dir = workDir
 	output, err = cmd.Output()
 	if err != nil {

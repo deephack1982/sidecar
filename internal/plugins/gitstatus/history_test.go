@@ -1,6 +1,10 @@
 package gitstatus
 
 import (
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -110,6 +114,64 @@ func TestCommitFile_Fields(t *testing.T) {
 	}
 	if file.Status != StatusRenamed {
 		t.Errorf("Status = %v, want %v", file.Status, StatusRenamed)
+	}
+}
+
+func TestGetCommitDetail_PopulatesParentHashes(t *testing.T) {
+	// Use the actual sidecar repo to test GetCommitDetail
+	workDir, err := os.Getwd()
+	if err != nil {
+		t.Skip("cannot get working directory")
+	}
+	// Walk up to repo root
+	for {
+		if _, err := os.Stat(filepath.Join(workDir, ".git")); err == nil {
+			break
+		}
+		parent := filepath.Dir(workDir)
+		if parent == workDir {
+			t.Skip("not in a git repo")
+		}
+		workDir = parent
+	}
+
+	// Find a merge commit
+	mergeHash, err := exec.Command("git", "-C", workDir, "log", "--merges", "--format=%H", "-1").Output()
+	if err != nil || len(strings.TrimSpace(string(mergeHash))) == 0 {
+		t.Skip("no merge commits in repo")
+	}
+	hash := strings.TrimSpace(string(mergeHash))
+
+	commit, err := GetCommitDetail(workDir, hash)
+	if err != nil {
+		t.Fatalf("GetCommitDetail(%q): %v", hash, err)
+	}
+	if commit == nil {
+		t.Fatal("GetCommitDetail returned nil commit")
+	}
+	if !commit.IsMerge {
+		t.Errorf("IsMerge = false, want true for merge commit %s", hash)
+	}
+	if len(commit.ParentHashes) < 2 {
+		t.Errorf("ParentHashes = %v, want at least 2 parents for merge commit %s", commit.ParentHashes, hash)
+	}
+
+	// Also test a non-merge commit
+	nonMergeHash, err := exec.Command("git", "-C", workDir, "log", "--no-merges", "--format=%H", "-1").Output()
+	if err != nil || len(strings.TrimSpace(string(nonMergeHash))) == 0 {
+		t.Skip("no non-merge commits in repo")
+	}
+	hash2 := strings.TrimSpace(string(nonMergeHash))
+
+	commit2, err := GetCommitDetail(workDir, hash2)
+	if err != nil {
+		t.Fatalf("GetCommitDetail(%q): %v", hash2, err)
+	}
+	if commit2.IsMerge {
+		t.Errorf("IsMerge = true, want false for non-merge commit %s", hash2)
+	}
+	if len(commit2.ParentHashes) != 1 {
+		t.Errorf("ParentHashes = %v, want exactly 1 parent for non-merge commit %s", commit2.ParentHashes, hash2)
 	}
 }
 

@@ -173,10 +173,15 @@ func (m *Model) ensureIssueInputModal() {
 		}, nil))
 	} else {
 		// Reserve space for results even when empty
+		showClosedHint := m.issueSearchQuery != "" && !m.issueSearchLoading && !m.issueSearchIncludeClosed
 		b = b.AddSection(modal.Custom(func(contentWidth int, _, _ string) modal.RenderedSection {
 			var sb strings.Builder
+			if showClosedHint {
+				hint := styles.KeyHint.Render("^x") + styles.Muted.Render(" to include closed issues")
+				sb.WriteString(hint)
+			}
 			for i := 0; i < minResultLines; i++ {
-				if i > 0 {
+				if i > 0 || !showClosedHint {
 					sb.WriteString("\n")
 				}
 			}
