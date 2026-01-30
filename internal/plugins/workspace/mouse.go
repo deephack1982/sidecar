@@ -316,7 +316,7 @@ func (p *Plugin) handleMergeModalMouse(msg tea.MouseMsg) tea.Cmd {
 	switch action {
 	case "":
 		return nil
-	case "cancel":
+	case "cancel", "dismiss":
 		p.cancelMergeWorkflow()
 		p.clearMergeModal()
 		return nil

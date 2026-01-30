@@ -668,16 +668,27 @@ func (p *Plugin) ensureMergeModal() {
 
 	case MergeStepDone:
 		m.AddSection(p.mergeDoneSection())
-	}
 
-	// Add error section if any
-	if p.mergeState.Error != nil {
-		m.AddSection(modal.Spacer())
+	case MergeStepError:
+		// Override with danger-variant modal for prominent error display
+		m = modal.New(p.mergeState.ErrorTitle,
+			modal.WithWidth(modalW),
+			modal.WithVariant(modal.VariantDanger),
+			modal.WithHints(false),
+			modal.WithCloseOnBackdropClick(false),
+		)
+		m.AddSection(p.mergeProgressSection())
 		m.AddSection(modal.Custom(func(contentWidth int, focusID, hoverID string) modal.RenderedSection {
-			errText := lipgloss.NewStyle().Foreground(styles.Error).Render(
-				fmt.Sprintf("Error: %s", p.mergeState.Error.Error()))
-			return modal.RenderedSection{Content: errText}
+			return modal.RenderedSection{Content: strings.Repeat("─", min(contentWidth, 60))}
 		}, nil))
+		m.AddSection(modal.Spacer())
+		m.AddSection(modal.Text(lipgloss.NewStyle().Foreground(styles.Error).Bold(true).Render("Error Output:")))
+		m.AddSection(modal.Spacer())
+		m.AddSection(modal.Text(p.mergeState.ErrorDetail))
+		m.AddSection(modal.Spacer())
+		m.AddSection(modal.Buttons(modal.Btn(" Dismiss ", "dismiss")))
+		m.AddSection(modal.Spacer())
+		m.AddSection(modal.Text(dimText("y: copy error   Esc: dismiss")))
 	}
 
 	p.mergeModal = m

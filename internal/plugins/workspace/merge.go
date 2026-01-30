@@ -7,8 +7,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/atotto/clipboard"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/marcus/sidecar/internal/app"
+	"github.com/marcus/sidecar/internal/msg"
 	"github.com/marcus/sidecar/internal/plugins/gitstatus"
 )
 
@@ -25,6 +27,7 @@ const (
 	MergeStepPostMergeConfirmation        // User confirms cleanup options after PR merge
 	MergeStepCleanup
 	MergeStepDone
+	MergeStepError // Error display step (strategy-agnostic)
 )
 
 // String returns a display name for the merge step.
@@ -48,6 +51,8 @@ func (s MergeWorkflowStep) String() string {
 		return "Cleanup"
 	case MergeStepDone:
 		return "Done"
+	case MergeStepError:
+		return "Error"
 	default:
 		return "Unknown"
 	}
@@ -63,6 +68,9 @@ type MergeWorkflowState struct {
 	PRURL            string
 	ExistingPR       bool   // True if using an existing PR (vs newly created)
 	Error            error
+	ErrorTitle       string            // Short title for error display (e.g. "Direct Merge Failed")
+	ErrorDetail      string            // Full error text for display and clipboard copy
+	ErrorFromStep    MergeWorkflowStep // Which step produced the error
 	StepStatus       map[MergeWorkflowStep]string // "pending", "running", "done", "error", "skipped"
 	DeleteAfterMerge bool                         // true = delete worktree after merge (default)
 
@@ -1011,6 +1019,28 @@ func (p *Plugin) advanceMergeStep() tea.Cmd {
 func (p *Plugin) cancelMergeWorkflow() {
 	p.mergeState = nil
 	p.viewMode = ViewModeList
+}
+
+// transitionToMergeError transitions the merge workflow to the error display step.
+func (p *Plugin) transitionToMergeError(fromStep MergeWorkflowStep, title string, err error) {
+	p.mergeState.Error = err
+	p.mergeState.ErrorTitle = title
+	p.mergeState.ErrorDetail = err.Error()
+	p.mergeState.ErrorFromStep = fromStep
+	p.mergeState.StepStatus[fromStep] = "error"
+	p.mergeState.Step = MergeStepError
+	p.clearMergeModal()
+}
+
+// yankMergeErrorToClipboard copies the merge error detail to the system clipboard.
+func (p *Plugin) yankMergeErrorToClipboard() tea.Cmd {
+	if p.mergeState == nil || p.mergeState.ErrorDetail == "" {
+		return nil
+	}
+	if err := clipboard.WriteAll(p.mergeState.ErrorDetail); err != nil {
+		return msg.ShowToast("Copy failed: "+err.Error(), 2*time.Second)
+	}
+	return msg.ShowToast("Copied error to clipboard", 2*time.Second)
 }
 
 // checkCleanupComplete decrements pending ops counter and advances to done step when all complete.

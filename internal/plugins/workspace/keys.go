@@ -1115,6 +1115,28 @@ func (p *Plugin) handleMergeKeys(msg tea.KeyMsg) tea.Cmd {
 	// Ensure modal is built for key handling
 	p.ensureMergeModal()
 
+	// Handle error step — yank, dismiss
+	if p.mergeState.Step == MergeStepError {
+		switch msg.String() {
+		case "y":
+			return p.yankMergeErrorToClipboard()
+		case "esc", "q", "enter":
+			p.cancelMergeWorkflow()
+			p.clearMergeModal()
+			return nil
+		}
+		if p.mergeModal != nil {
+			action, cmd := p.mergeModal.HandleKey(msg)
+			if action == "dismiss" || action == "cancel" {
+				p.cancelMergeWorkflow()
+				p.clearMergeModal()
+				return nil
+			}
+			return cmd
+		}
+		return nil
+	}
+
 	// For PostMergeConfirmation step, delegate to modal library for Tab/Enter/Space
 	if p.mergeState.Step == MergeStepPostMergeConfirmation && p.mergeModal != nil {
 		action, cmd := p.mergeModal.HandleKey(msg)

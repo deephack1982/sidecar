@@ -363,6 +363,10 @@ func DefaultBindings() []Binding {
 		{Key: "ctrl+d", Command: "page-down", Context: "workspace-preview"},
 		{Key: "ctrl+u", Command: "page-up", Context: "workspace-preview"},
 
+		// Workspace merge error context
+		{Key: "esc", Command: "dismiss-merge-error", Context: "workspace-merge-error"},
+		{Key: "y", Command: "yank-merge-error", Context: "workspace-merge-error"},
+
 		// Workspace interactive context bindings are registered dynamically
 		// by the workspace plugin Init() to reflect configured keys.
 	}

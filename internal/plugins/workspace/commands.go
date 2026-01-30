@@ -25,6 +25,12 @@ func (p *Plugin) Commands() []plugin.Command {
 			{ID: "select-task", Name: "Select", Description: "Link selected task", Context: "workspace-task-link", Priority: 2},
 		}
 	case ViewModeMerge:
+		if p.mergeState != nil && p.mergeState.Step == MergeStepError {
+			return []plugin.Command{
+				{ID: "dismiss-merge-error", Name: "Dismiss", Description: "Dismiss error", Context: "workspace-merge-error", Priority: 1},
+				{ID: "yank-merge-error", Name: "Yank", Description: "Copy error to clipboard", Context: "workspace-merge-error", Priority: 2},
+			}
+		}
 		cmds := []plugin.Command{
 			{ID: "cancel", Name: "Cancel", Description: "Cancel merge workflow", Context: "workspace-merge", Priority: 1},
 		}
@@ -230,6 +236,9 @@ func (p *Plugin) FocusContext() string {
 	case ViewModeTaskLink:
 		return "workspace-task-link"
 	case ViewModeMerge:
+		if p.mergeState != nil && p.mergeState.Step == MergeStepError {
+			return "workspace-merge-error"
+		}
 		return "workspace-merge"
 	case ViewModeAgentChoice:
 		return "workspace-agent-choice"

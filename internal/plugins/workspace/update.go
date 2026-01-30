@@ -1011,8 +1011,8 @@ func (p *Plugin) Update(msg tea.Msg) (plugin.Plugin, tea.Cmd) {
 	case MergeStepCompleteMsg:
 		if p.mergeState != nil && p.mergeState.Worktree.Name == msg.WorkspaceName {
 			if msg.Err != nil {
-				p.mergeState.Error = msg.Err
-				p.mergeState.StepStatus[msg.Step] = "error"
+				title := fmt.Sprintf("%s Failed", msg.Step.String())
+				p.transitionToMergeError(msg.Step, title, msg.Err)
 			} else {
 				switch msg.Step {
 				case MergeStepReviewDiff:
@@ -1067,8 +1067,7 @@ func (p *Plugin) Update(msg tea.Msg) (plugin.Plugin, tea.Cmd) {
 	case DirectMergeDoneMsg:
 		if p.mergeState != nil && p.mergeState.Worktree.Name == msg.WorkspaceName {
 			if msg.Err != nil {
-				p.mergeState.Error = msg.Err
-				p.mergeState.StepStatus[MergeStepDirectMerge] = "error"
+				p.transitionToMergeError(MergeStepDirectMerge, "Direct Merge Failed", msg.Err)
 			} else {
 				// Direct merge succeeded, advance to confirmation
 				cmds = append(cmds, p.advanceMergeStep())
