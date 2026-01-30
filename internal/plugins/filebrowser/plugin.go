@@ -110,7 +110,7 @@ type Plugin struct {
 	// Pane state
 	activePane  FocusPane
 	treeVisible bool // Toggle tree pane visibility with \
-	showIgnored bool // Toggle git-ignored file visibility with I
+	showIgnored bool // Toggle git-ignored file visibility with H
 
 	// Tree state
 	treeCursor    int

@@ -231,7 +231,7 @@ func (p *Plugin) handleTreeKey(key string) (plugin.Plugin, tea.Cmd) {
 			return p, p.revealInFileManager(node.Path)
 		}
 
-	case "i":
+	case "I":
 		// Show file info
 		node := p.tree.GetNode(p.treeCursor)
 		if node != nil {
@@ -380,7 +380,7 @@ func (p *Plugin) handleTreeKey(key string) (plugin.Plugin, tea.Cmd) {
 			p.activePane = PanePreview
 		}
 
-	case "I":
+	case "H":
 		// Toggle git-ignored file visibility
 		p.showIgnored = !p.showIgnored
 		p.tree.ShowIgnored = p.showIgnored
@@ -525,7 +525,7 @@ func (p *Plugin) handlePreviewKey(key string) (plugin.Plugin, tea.Cmd) {
 			return p, p.revealInFileManager(p.previewFile)
 		}
 
-	case "i":
+	case "I":
 		// Show file info
 		if p.previewFile != "" {
 			p.infoMode = true

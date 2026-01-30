@@ -312,9 +312,9 @@ This document provides a comprehensive review of keyboard shortcuts across all s
 | `t` | new-tab | Same | - | **T**ab |
 | `[`/`]` | prev/next-tab | Same | - | Bracket navigation |
 | `ctrl+r` | reveal | Same | - | **R**eveal |
-| `i` | info | Same | - | **I**nfo |
+| `I` | info | Same | - | **I**nfo |
 | `B` | blame | Same | - | **B**lame |
-| `I` | toggle-ignored | Same | - | **I**gnored |
+| `H` | toggle-ignored | Same | - | **H**idden/ignored |
 
 ### Workspace Shortcuts (Proposed)
 

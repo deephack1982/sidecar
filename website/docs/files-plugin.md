@@ -165,7 +165,7 @@ Confirmation modal shows the item being deleted and requires explicit approval.
 
 ### File Information
 
-Press `i` for detailed file info modal:
+Press `I` for detailed file info modal:
 
 - **Git status**: Tracked, modified, staged, untracked
 - **File size**: Human-readable format
@@ -241,7 +241,8 @@ Reveal opens the system file manager with the file selected (macOS Finder, Windo
 | `d` | Delete (with confirmation) |
 | `y` / `p` | Yank/paste file |
 | `c` | Copy file path |
-| `i` | Show file info modal |
+| `I` | Show file info modal |
+| `H` | Toggle hidden/ignored files |
 
 ### Preview Pane
 

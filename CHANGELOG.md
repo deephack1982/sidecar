@@ -417,7 +417,7 @@ All notable changes to sidecar are documented here.
 ### Features
 
 - **Project Switcher**: Press `@` to switch between configured projects without restarting sidecar. Configure projects in `~/.config/sidecar/config.json` with `projects.list`. Supports keyboard navigation (j/k, Enter) and mouse interaction. State (active plugin, cursor positions) is remembered per project.
-- **File Browser**: Toggle git-ignored file visibility with `I` key, state persists across sessions
+- **File Browser**: Toggle git-ignored file visibility with `H` key, state persists across sessions
 
 ### Dependencies
 
