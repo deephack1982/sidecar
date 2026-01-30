@@ -890,7 +890,7 @@ export default function Home() {
   return (
     <Layout
       title="You might never open your editor again"
-      description="AI agents write your code. Sidecar keeps you in the terminal for everything else: planning tasks, reviewing diffs, staging commits, managing workspaces."
+      description="Use sidecar for planning features, managing workspaces, reviewing diffs, and staging commits. It's the most fun you can have in a terminal."
     >
       <header className="sc-hero">
         <div className="container">
