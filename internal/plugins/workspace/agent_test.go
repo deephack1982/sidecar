@@ -646,6 +646,189 @@ func TestBuildAgentCommandSyntax(t *testing.T) {
 	}
 }
 
+func TestRecordPollTime(t *testing.T) {
+	a := &Agent{}
+
+	// Record a few polls
+	for i := 0; i < 5; i++ {
+		a.RecordPollTime()
+	}
+	if len(a.RecentPollTimes) != 5 {
+		t.Errorf("expected 5 poll times, got %d", len(a.RecentPollTimes))
+	}
+
+	// Record more than runawayPollCount (20) polls
+	for i := 0; i < 20; i++ {
+		a.RecordPollTime()
+	}
+	// Should be truncated to runawayPollCount
+	if len(a.RecentPollTimes) != 20 {
+		t.Errorf("expected 20 poll times after truncation, got %d", len(a.RecentPollTimes))
+	}
+}
+
+func TestRecordPollTimeResetsUnchangedCount(t *testing.T) {
+	a := &Agent{UnchangedPollCount: 5}
+	a.RecordPollTime()
+	if a.UnchangedPollCount != 0 {
+		t.Errorf("RecordPollTime should reset UnchangedPollCount, got %d", a.UnchangedPollCount)
+	}
+}
+
+func TestCheckRunawayDetectsRunaway(t *testing.T) {
+	a := &Agent{}
+	now := time.Now()
+
+	// Simulate 20 polls within 1 second (well under 3s window)
+	for i := 0; i < 20; i++ {
+		a.RecentPollTimes = append(a.RecentPollTimes, now.Add(time.Duration(i)*50*time.Millisecond))
+	}
+
+	if !a.CheckRunaway() {
+		t.Error("should detect runaway when 20 polls happen within 3s")
+	}
+	if !a.PollsThrottled {
+		t.Error("PollsThrottled should be set after runaway detection")
+	}
+}
+
+func TestCheckRunawayNoDetectionWhenSlow(t *testing.T) {
+	a := &Agent{}
+	now := time.Now()
+
+	// Simulate 20 polls over 5 seconds (exceeds 3s window)
+	for i := 0; i < 20; i++ {
+		a.RecentPollTimes = append(a.RecentPollTimes, now.Add(time.Duration(i)*250*time.Millisecond))
+	}
+
+	if a.CheckRunaway() {
+		t.Error("should not detect runaway when polls span >3s")
+	}
+	if a.PollsThrottled {
+		t.Error("PollsThrottled should not be set")
+	}
+}
+
+func TestCheckRunawayNotEnoughData(t *testing.T) {
+	a := &Agent{}
+	// Only 5 polls
+	for i := 0; i < 5; i++ {
+		a.RecentPollTimes = append(a.RecentPollTimes, time.Now())
+	}
+
+	if a.CheckRunaway() {
+		t.Error("should not detect runaway with fewer than 20 polls")
+	}
+}
+
+func TestCheckRunawayAlreadyThrottled(t *testing.T) {
+	a := &Agent{PollsThrottled: true}
+	if !a.CheckRunaway() {
+		t.Error("should return true when already throttled")
+	}
+}
+
+func TestCheckRunawayEmptyPollTimes(t *testing.T) {
+	a := &Agent{}
+	if a.CheckRunaway() {
+		t.Error("should not detect runaway with empty poll times")
+	}
+}
+
+func TestCheckRunawayNilPollTimes(t *testing.T) {
+	a := &Agent{RecentPollTimes: nil}
+	if a.CheckRunaway() {
+		t.Error("should not detect runaway with nil poll times")
+	}
+}
+
+func TestCheckRunawayBoundaryExactly3Seconds(t *testing.T) {
+	a := &Agent{}
+	now := time.Now()
+
+	// Exactly 3 seconds between oldest and newest - should NOT trigger
+	// (condition is elapsed < runawayTimeWindow, not <=)
+	for i := 0; i < 20; i++ {
+		a.RecentPollTimes = append(a.RecentPollTimes,
+			now.Add(time.Duration(i)*time.Duration(3*time.Second)/19))
+	}
+
+	if a.CheckRunaway() {
+		t.Error("should not detect runaway when span equals exactly 3s")
+	}
+}
+
+func TestRecordUnchangedPollIncrementsCount(t *testing.T) {
+	a := &Agent{}
+	a.RecordUnchangedPoll()
+	if a.UnchangedPollCount != 1 {
+		t.Errorf("expected UnchangedPollCount=1, got %d", a.UnchangedPollCount)
+	}
+	a.RecordUnchangedPoll()
+	if a.UnchangedPollCount != 2 {
+		t.Errorf("expected UnchangedPollCount=2, got %d", a.UnchangedPollCount)
+	}
+}
+
+func TestRecordUnchangedPollResetsThrottle(t *testing.T) {
+	a := &Agent{
+		PollsThrottled:     true,
+		RecentPollTimes:    []time.Time{time.Now()},
+		UnchangedPollCount: 2, // Already at 2 unchanged
+	}
+
+	// Third unchanged poll should reset throttle
+	a.RecordUnchangedPoll()
+
+	if a.PollsThrottled {
+		t.Error("throttle should be reset after 3 unchanged polls")
+	}
+	if a.RecentPollTimes != nil {
+		t.Error("RecentPollTimes should be nil after reset")
+	}
+	if a.UnchangedPollCount != 0 {
+		t.Errorf("UnchangedPollCount should be 0 after reset, got %d", a.UnchangedPollCount)
+	}
+}
+
+func TestRecordUnchangedPollNoResetIfNotThrottled(t *testing.T) {
+	a := &Agent{
+		PollsThrottled:     false,
+		UnchangedPollCount: 2,
+	}
+
+	a.RecordUnchangedPoll()
+
+	// Count increments but no reset happens since not throttled
+	if a.UnchangedPollCount != 3 {
+		t.Errorf("expected UnchangedPollCount=3, got %d", a.UnchangedPollCount)
+	}
+}
+
+func TestRecordUnchangedPollResetInterruptedByChange(t *testing.T) {
+	a := &Agent{
+		PollsThrottled:     true,
+		UnchangedPollCount: 2,
+	}
+
+	// Content changes - RecordPollTime resets the unchanged count
+	a.RecordPollTime()
+	if a.UnchangedPollCount != 0 {
+		t.Errorf("expected UnchangedPollCount=0 after content change, got %d", a.UnchangedPollCount)
+	}
+
+	// Next unchanged poll starts from 0 again
+	a.RecordUnchangedPoll()
+	if a.UnchangedPollCount != 1 {
+		t.Errorf("expected UnchangedPollCount=1, got %d", a.UnchangedPollCount)
+	}
+
+	// Still throttled because never reached 3 consecutive
+	if !a.PollsThrottled {
+		t.Error("should still be throttled")
+	}
+}
+
 func TestWriteAgentLauncher(t *testing.T) {
 	// Test that launcher scripts are created correctly for complex prompts
 	tmpDir := t.TempDir()

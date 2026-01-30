@@ -322,7 +322,8 @@ func (a *Agent) CheckRunaway() bool {
 	}
 	// Check if runawayPollCount polls happened within runawayTimeWindow
 	oldest := a.RecentPollTimes[0]
-	elapsed := time.Since(oldest)
+	newest := a.RecentPollTimes[len(a.RecentPollTimes)-1]
+	elapsed := newest.Sub(oldest)
 	if elapsed < runawayTimeWindow {
 		a.PollsThrottled = true
 		return true
