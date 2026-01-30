@@ -351,6 +351,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case version.UpdateAvailableMsg:
 		m.updateAvailable = &msg
 		m.updateInstallMethod = msg.InstallMethod
+		m.clearDiagnosticsModal() // Force rebuild so modal picks up new update state
 		m.ShowToast(
 			fmt.Sprintf("Update %s available! Press ! for details", msg.LatestVersion),
 			15*time.Second,
@@ -359,6 +360,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case version.TdVersionMsg:
 		m.tdVersionInfo = &msg
+		m.clearDiagnosticsModal() // Force rebuild so modal picks up new version state
 		// Show toast if td has an update (only if sidecar doesn't also have one)
 		if msg.HasUpdate && m.updateAvailable == nil {
 			m.ShowToast(
