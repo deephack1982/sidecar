@@ -494,6 +494,9 @@ func (p *Plugin) enterInteractiveMode() tea.Cmd {
 // IMPORTANT: This must stay in sync with renderListView() width calculations.
 func (p *Plugin) calculatePreviewDimensions() (width, height int) {
 	if p.width <= 0 || p.height <= 0 {
+		if w, h, err := term.GetSize(int(os.Stdout.Fd())); err == nil && w > 0 && h > 0 {
+			return w - panelOverhead, h - panelBorderWidth - 1
+		}
 		return 80, 24 // Safe defaults
 	}
 
