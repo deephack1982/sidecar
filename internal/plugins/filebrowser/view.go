@@ -527,6 +527,7 @@ func (p *Plugin) renderTreePane(visibleHeight int) string {
 		end = p.tree.Len()
 	}
 
+	var treeSB strings.Builder
 	for i := p.treeScrollOff; i < end; i++ {
 		node := p.tree.GetNode(i)
 		if node == nil {
@@ -534,22 +535,30 @@ func (p *Plugin) renderTreePane(visibleHeight int) string {
 		}
 
 		selected := i == p.treeCursor
-		maxWidth := p.treeWidth - 4 // Account for border padding
+		maxWidth := p.treeWidth - 4 - 1 // Account for border padding and scrollbar column
 		line := p.renderTreeNode(node, selected, maxWidth)
 
-		sb.WriteString(line)
+		treeSB.WriteString(line)
 		// Don't add newline after last line
 		if i < end-1 {
-			sb.WriteString("\n")
+			treeSB.WriteString("\n")
 		}
 	}
 
+	scrollbar := ui.RenderScrollbar(ui.ScrollbarParams{
+		TotalItems:   p.tree.Len(),
+		ScrollOffset: p.treeScrollOff,
+		VisibleItems: visibleHeight,
+		TrackHeight:  visibleHeight,
+	})
+
+	sb.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, treeSB.String(), scrollbar))
 	return sb.String()
 }
 
 // renderSearchResults renders the filtered search results list.
 func (p *Plugin) renderSearchResults(sb *strings.Builder, visibleHeight int) string {
-	maxWidth := p.treeWidth - 4
+	maxWidth := p.treeWidth - 4 - 1 // Reserve 1 col for scrollbar
 
 	// Calculate scroll offset for search results
 	searchScrollOff := 0
@@ -562,6 +571,7 @@ func (p *Plugin) renderSearchResults(sb *strings.Builder, visibleHeight int) str
 		end = len(p.searchMatches)
 	}
 
+	var resultSB strings.Builder
 	for i := searchScrollOff; i < end; i++ {
 		node := p.searchMatches[i]
 		selected := i == p.searchCursor
@@ -577,23 +587,31 @@ func (p *Plugin) renderSearchResults(sb *strings.Builder, visibleHeight int) str
 			if len(displayPath) < maxWidth {
 				displayPath += strings.Repeat(" ", maxWidth-len(displayPath))
 			}
-			sb.WriteString(styles.ListItemSelected.Render(displayPath))
+			resultSB.WriteString(styles.ListItemSelected.Render(displayPath))
 		} else {
 			// Style based on file type
 			if node.IsDir {
-				sb.WriteString(styles.FileBrowserDir.Render(displayPath))
+				resultSB.WriteString(styles.FileBrowserDir.Render(displayPath))
 			} else if node.IsIgnored {
-				sb.WriteString(styles.FileBrowserIgnored.Render(displayPath))
+				resultSB.WriteString(styles.FileBrowserIgnored.Render(displayPath))
 			} else {
-				sb.WriteString(styles.FileBrowserFile.Render(displayPath))
+				resultSB.WriteString(styles.FileBrowserFile.Render(displayPath))
 			}
 		}
 
 		if i < end-1 {
-			sb.WriteString("\n")
+			resultSB.WriteString("\n")
 		}
 	}
 
+	scrollbar := ui.RenderScrollbar(ui.ScrollbarParams{
+		TotalItems:   len(p.searchMatches),
+		ScrollOffset: searchScrollOff,
+		VisibleItems: visibleHeight,
+		TrackHeight:  visibleHeight,
+	})
+
+	sb.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, resultSB.String(), scrollbar))
 	return sb.String()
 }
 
