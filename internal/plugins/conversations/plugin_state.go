@@ -120,7 +120,21 @@ func (p *Plugin) visibleSessions() []adapter.Session {
 		return filtered
 	}
 
+	// Apply session pagination (td-7198a5)
+	if p.displayedCount > 0 && p.displayedCount < len(p.sessions) {
+		return p.sessions[:p.displayedCount]
+	}
 	return p.sessions
+}
+
+// loadMoreSessions increases the displayed session count by one page (td-7198a5).
+func (p *Plugin) loadMoreSessions() {
+	p.displayedCount += defaultSessionPageSize
+	if p.displayedCount > len(p.sessions) {
+		p.displayedCount = len(p.sessions)
+	}
+	p.hasMoreSessions = p.displayedCount < len(p.sessions)
+	p.hitRegionsDirty = true
 }
 
 // visibleMessageIndices returns indices of messages shown in conversation flow

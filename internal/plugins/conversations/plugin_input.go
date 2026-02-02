@@ -33,6 +33,16 @@ func (p *Plugin) updateSessions(msg tea.KeyMsg) (plugin.Plugin, tea.Cmd) {
 				p.setSelectedSession(sessions[p.cursor].ID)
 				return p, p.schedulePreviewLoad(p.selectedSession)
 			}
+		} else if p.hasMoreSessions {
+			// Auto-load more sessions when scrolling past bottom (td-7198a5)
+			p.loadMoreSessions()
+			sessions = p.visibleSessions()
+			if p.cursor < len(sessions)-1 {
+				p.cursor++
+				p.ensureCursorVisible()
+				p.setSelectedSession(sessions[p.cursor].ID)
+				return p, p.schedulePreviewLoad(p.selectedSession)
+			}
 		}
 
 	case "k", "up":
@@ -54,6 +64,13 @@ func (p *Plugin) updateSessions(msg tea.KeyMsg) (plugin.Plugin, tea.Cmd) {
 		}
 
 	case "G":
+		// Load all sessions when jumping to end (td-7198a5)
+		if p.hasMoreSessions {
+			p.displayedCount = len(p.sessions)
+			p.hasMoreSessions = false
+			p.hitRegionsDirty = true
+		}
+		sessions = p.visibleSessions()
 		if len(sessions) > 0 {
 			p.cursor = len(sessions) - 1
 			p.ensureCursorVisible()
@@ -70,6 +87,11 @@ func (p *Plugin) updateSessions(msg tea.KeyMsg) (plugin.Plugin, tea.Cmd) {
 			p.cursor = len(sessions) - 1
 		}
 		p.ensureCursorVisible()
+		// Auto-load more sessions when paging reaches the boundary (td-7198a5)
+		if p.cursor >= len(sessions)-1 && p.hasMoreSessions {
+			p.loadMoreSessions()
+			sessions = p.visibleSessions()
+		}
 		if p.cursor < len(sessions) {
 			p.setSelectedSession(sessions[p.cursor].ID)
 			return p, p.schedulePreviewLoad(p.selectedSession)

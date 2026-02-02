@@ -29,6 +29,9 @@ const (
 	defaultPageSize     = 50
 	maxMessagesInMemory = 500
 
+	// Default page size for session list pagination (td-7198a5)
+	defaultSessionPageSize = 50
+
 	previewDebounce     = 150 * time.Millisecond
 	watchReloadDebounce = 200 * time.Millisecond
 	loadSettleDelay     = 300 * time.Millisecond // Wait for sessions to settle before hiding skeleton
@@ -93,9 +96,11 @@ type Plugin struct {
 	view View
 
 	// Session list state
-	sessions  []adapter.Session
-	cursor    int
-	scrollOff int
+	sessions        []adapter.Session
+	cursor          int
+	scrollOff       int
+	displayedCount  int  // sessions currently surfaced to UI (td-7198a5)
+	hasMoreSessions bool // displayedCount < len(sessions) (td-7198a5)
 
 	// Message view state
 	selectedSession string
@@ -256,6 +261,7 @@ func New() *Plugin {
 	coalesceChan := make(chan CoalescedRefreshMsg, 8)
 	p := &Plugin{
 		pageSize:            defaultPageSize,
+		displayedCount:      defaultSessionPageSize,
 		expandedThinking:    make(map[string]bool),
 		expandedMessages:    make(map[string]bool),
 		expandedToolResults: make(map[string]bool),
@@ -303,6 +309,8 @@ func (p *Plugin) resetState() {
 	p.sessions = nil
 	p.cursor = 0
 	p.scrollOff = 0
+	p.displayedCount = defaultSessionPageSize
+	p.hasMoreSessions = false
 
 	// Message view state
 	p.selectedSession = ""
@@ -526,6 +534,11 @@ func (p *Plugin) Update(msg tea.Msg) (plugin.Plugin, tea.Cmd) {
 			return p, nil // Ignore stale message from previous project
 		}
 		p.sessions = msg.Sessions
+		// Update session pagination state (td-7198a5)
+		if p.displayedCount == 0 {
+			p.displayedCount = defaultSessionPageSize
+		}
+		p.hasMoreSessions = len(p.sessions) > p.displayedCount
 		// Update coalescer with session sizes for dynamic debounce (td-190095)
 		if p.coalescer != nil {
 			p.coalescer.UpdateSessionSizes(msg.Sessions)

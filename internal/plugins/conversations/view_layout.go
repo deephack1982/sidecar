@@ -289,6 +289,9 @@ func (p *Plugin) renderSidebarPane(height int) string {
 	countStr := fmt.Sprintf("%d", len(p.sessions))
 	if p.searchMode && p.searchQuery != "" {
 		countStr = fmt.Sprintf("%d/%d", len(sessions), len(p.sessions))
+	} else if p.hasMoreSessions {
+		// Show paginated count (td-7198a5)
+		countStr = fmt.Sprintf("%d/%d", p.displayedCount, len(p.sessions))
 	}
 	// Truncate count if needed
 	maxCountLen := contentWidth - len("Sessions ")
@@ -347,6 +350,10 @@ func (p *Plugin) renderSidebarPane(height int) string {
 
 	// Render sessions
 	contentHeight := height - linesUsed
+	// Reserve 1 line for "load more" indicator when paginated (td-7198a5)
+	if p.hasMoreSessions && !p.searchMode && !p.filterMode {
+		contentHeight--
+	}
 	if contentHeight < 1 {
 		contentHeight = 1
 	}
@@ -373,6 +380,13 @@ func (p *Plugin) renderSidebarPane(height int) string {
 			sessionSB.WriteString(p.renderCompactSessionRow(session, selected, sessionWidth))
 			sessionSB.WriteString("\n")
 		}
+	}
+
+	// Show "load more" indicator when paginated (td-7198a5)
+	if p.hasMoreSessions && !p.searchMode && !p.filterMode {
+		remaining := len(p.sessions) - p.displayedCount
+		loadMoreLine := fmt.Sprintf("  \u2193 %d more", remaining)
+		sessionSB.WriteString(styles.Muted.Render(loadMoreLine) + "\n")
 	}
 
 	sessionContent := strings.TrimRight(sessionSB.String(), "\n")
