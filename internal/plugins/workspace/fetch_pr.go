@@ -84,6 +84,11 @@ func (p *Plugin) fetchAndCreateWorktree(pr PRListItem) tea.Cmd {
 		// Detect base branch for diff
 		baseBranch := detectDefaultBranch(workDir)
 
+		// Persist base branch to .sidecar-base file
+		if err := saveBaseBranch(wtPath, baseBranch); err != nil {
+			// Log but don't fail
+		}
+
 		wt := &Worktree{
 			Name:       dirName,
 			Path:       wtPath,

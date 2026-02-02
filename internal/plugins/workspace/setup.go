@@ -21,6 +21,7 @@ var sidecarGitignoreEntries = []string{
 	".sidecar-task",
 	".sidecar-pr",
 	".sidecar-start.sh",
+	".sidecar-base",
 	".td-root",
 }
 

@@ -293,6 +293,11 @@ func (p *Plugin) doCreateWorktree(name, baseBranch, taskID, taskTitle string, ag
 		p.ctx.Logger.Warn("failed to save agent type", "path", wtPath, "error", err)
 	}
 
+	// Persist base branch to .sidecar-base file
+	if err := saveBaseBranch(wtPath, actualBase); err != nil {
+		p.ctx.Logger.Warn("failed to save base branch", "path", wtPath, "error", err)
+	}
+
 	// Run post-creation setup (env files, symlinks, setup script)
 	if err := p.setupWorktree(wtPath, name); err != nil {
 		p.ctx.Logger.Warn("workspace setup had errors", "path", wtPath, "error", err)
@@ -488,6 +493,28 @@ func (p *Plugin) setupTDRoot(worktreePath string) error {
 const sidecarTaskFile = ".sidecar-task"
 const sidecarAgentFile = ".sidecar-agent"
 const sidecarPRFile = ".sidecar-pr"
+const sidecarBaseFile = ".sidecar-base"
+
+// saveBaseBranch persists the base branch to the worktree.
+func saveBaseBranch(worktreePath string, branch string) error {
+	if branch == "" {
+		basePath := filepath.Join(worktreePath, sidecarBaseFile)
+		os.Remove(basePath)
+		return nil
+	}
+	basePath := filepath.Join(worktreePath, sidecarBaseFile)
+	return os.WriteFile(basePath, []byte(branch+"\n"), 0644)
+}
+
+// loadBaseBranch reads the base branch from the worktree.
+func loadBaseBranch(worktreePath string) string {
+	basePath := filepath.Join(worktreePath, sidecarBaseFile)
+	content, err := os.ReadFile(basePath)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(content))
+}
 
 // loadTaskLink reads the linked task ID from the .sidecar-task file.
 func loadTaskLink(worktreePath string) string {

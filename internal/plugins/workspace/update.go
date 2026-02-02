@@ -107,6 +107,8 @@ func (p *Plugin) Update(msg tea.Msg) (plugin.Plugin, tea.Cmd) {
 				wt.ChosenAgentType = loadAgentType(wt.Path)
 				// Load PR URL from .sidecar-pr file
 				wt.PRURL = loadPRURL(wt.Path)
+				// Load base branch from .sidecar-base file
+				wt.BaseBranch = loadBaseBranch(wt.Path)
 			}
 			// Detect conflicts across worktrees
 			cmds = append(cmds, p.loadConflicts())
