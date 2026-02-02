@@ -190,6 +190,34 @@ The footer automatically renders hints for the active context. No manual footer 
 - Use built-in sections (Text, Input, Textarea, Buttons, Checkbox, List, When) before custom layouts.
 - For bespoke layouts, use `modal.Custom` and return explicit focusable offsets.
 - Do not render footers or hint lines in plugin View. The app renders the unified footer from Commands().
+- `SetFocus(id)` auto-scrolls the viewport to the focused element. Plugins that manage their own focus state (e.g., workspace create modal with `createFocus` counter) should call `SetFocus()` after changing focus to trigger scroll-to-visible.
+
+### Background colors in modals (critical)
+
+Lipgloss `Background()` on a parent style does **not** cascade into child-rendered content. Each styled element's ANSI reset (`\x1b[0m`) clears all attributes including the parent's background, leaving terminal-default black for the remainder of that line.
+
+**The problem**: A modal with `Background(styles.BgSecondary)` renders inner elements (input borders, dropdown items, hint text) that contain ANSI resets. After each reset, the background reverts to black instead of the modal's background color.
+
+**Why naive fixes fail**:
+- `lipgloss.Style.Width(w).Render(line)` — re-renders each line through lipgloss, which causes **wrapping artifacts** when lines contain complex ANSI sequences already at the target width.
+- Appending background-padded spaces — only fixes the right margin, not mid-line black patches between styled elements.
+
+**The solution** (`fillBackground` in `internal/modal/layout.go`): Replace ANSI resets within each viewport line with reset + background re-apply, then pad short lines with spaces. This avoids re-rendering through lipgloss (no wrapping) while maintaining uniform background.
+
+```go
+// Extract the raw ANSI background escape sequence
+bgSeq := bgANSISeq() // renders a marker through lipgloss, takes the prefix
+
+// For each viewport line:
+// 1. Replace resets with reset + bg re-apply
+line = strings.ReplaceAll(line, "\x1b[0m", "\x1b[0m"+bgSeq)
+// 2. Pad short lines (no lipgloss Width — avoids wrapping)
+if lipgloss.Width(line) < targetWidth {
+    line += strings.Repeat(" ", targetWidth-lipgloss.Width(line))
+}
+```
+
+**When to apply this pattern**: Any container with `Background()` that renders child content produced by separate `lipgloss.Style.Render()` calls. The ANSI reset problem affects modals, overlay panels, and any nested styled content.
 
 ### Background overlay
 - Prefer `ui.OverlayModal(background, modal, width, height)` for dimmed overlays.
