@@ -212,6 +212,17 @@ func (p *Plugin) scrollSidebar(delta int) (*Plugin, tea.Cmd) {
 		newCursor = len(sessions) - 1
 	}
 
+	// Auto-load more sessions when scrolling past bottom (td-7198a5)
+	if newCursor >= len(sessions)-1 && p.hasMoreSessions {
+		p.loadMoreSessions()
+		sessions = p.visibleSessions()
+		// Allow cursor to continue into newly loaded sessions
+		newCursor = p.cursor + delta
+		if newCursor >= len(sessions) {
+			newCursor = len(sessions) - 1
+		}
+	}
+
 	if newCursor != p.cursor {
 		p.cursor = newCursor
 		p.ensureCursorVisible()

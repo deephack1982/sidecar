@@ -121,54 +121,68 @@ func (p *Plugin) loadSessions() tea.Cmd {
 			cacheUpdated = true
 		}
 
-		// Track seen sessions to avoid duplicates (same session loaded from multiple paths)
-		seenSessions := make(map[string]bool)
-		var sessions []adapter.Session
-
 		// Get current working directory for worktree name comparison
 		currentPath := workDir
 		if absPath, err := filepath.Abs(currentPath); err == nil {
 			currentPath = absPath
 		}
 
+		// Parallel adapter loading (td-7198a5: eliminates sequential bottleneck)
+		type adapterResult struct {
+			sessions []adapter.Session
+		}
+		resultCh := make(chan adapterResult, len(adapters))
+		var wg sync.WaitGroup
+
 		for id, a := range adapters {
-			for _, wtPath := range worktreePaths {
-				adapterSessions, err := a.Sessions(wtPath)
-				if err != nil {
-					continue
-				}
-
-				// Get worktree name from cache
-				wtName := worktreeNames[wtPath]
-
-				for i := range adapterSessions {
-					// Skip duplicates
-					if seenSessions[adapterSessions[i].ID] {
+			adapterID := id
+			adpt := a
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				var adapterSess []adapter.Session
+				for _, wtPath := range worktreePaths {
+					wtSessions, err := adpt.Sessions(wtPath)
+					if err != nil {
 						continue
 					}
-					seenSessions[adapterSessions[i].ID] = true
+					wtName := worktreeNames[wtPath]
+					for i := range wtSessions {
+						if wtSessions[i].AdapterID == "" {
+							wtSessions[i].AdapterID = adapterID
+						}
+						if wtSessions[i].AdapterName == "" {
+							wtSessions[i].AdapterName = adpt.Name()
+						}
+						if wtSessions[i].AdapterIcon == "" {
+							wtSessions[i].AdapterIcon = adpt.Icon()
+						}
+						absWtPath := wtPath
+						if abs, err := filepath.Abs(wtPath); err == nil {
+							absWtPath = abs
+						}
+						if absWtPath != currentPath {
+							wtSessions[i].WorktreeName = wtName
+							wtSessions[i].WorktreePath = absWtPath
+						}
+						adapterSess = append(adapterSess, wtSessions[i])
+					}
+				}
+				resultCh <- adapterResult{sessions: adapterSess}
+			}()
+		}
 
-					if adapterSessions[i].AdapterID == "" {
-						adapterSessions[i].AdapterID = id
-					}
-					if adapterSessions[i].AdapterName == "" {
-						adapterSessions[i].AdapterName = a.Name()
-					}
-					if adapterSessions[i].AdapterIcon == "" {
-						adapterSessions[i].AdapterIcon = a.Icon()
-					}
+		wg.Wait()
+		close(resultCh)
 
-					// Set worktree fields if session is from a different worktree
-					absWtPath := wtPath
-					if abs, err := filepath.Abs(wtPath); err == nil {
-						absWtPath = abs
-					}
-					if absWtPath != currentPath {
-						adapterSessions[i].WorktreeName = wtName
-						adapterSessions[i].WorktreePath = absWtPath
-					}
-
-					sessions = append(sessions, adapterSessions[i])
+		// Collect results and deduplicate
+		seenSessions := make(map[string]bool)
+		var sessions []adapter.Session
+		for result := range resultCh {
+			for _, s := range result.sessions {
+				if !seenSessions[s.ID] {
+					seenSessions[s.ID] = true
+					sessions = append(sessions, s)
 				}
 			}
 		}
