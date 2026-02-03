@@ -13,9 +13,9 @@ import (
 	"github.com/marcus/sidecar/internal/modal"
 	"github.com/marcus/sidecar/internal/mouse"
 	"github.com/marcus/sidecar/internal/plugin"
+	"github.com/marcus/sidecar/internal/ui"
 	"github.com/marcus/sidecar/internal/plugins/gitstatus"
 	"github.com/marcus/sidecar/internal/state"
-	"github.com/marcus/sidecar/internal/ui"
 )
 
 const (
@@ -132,11 +132,7 @@ type Plugin struct {
 	toastTime        time.Time // When toast was triggered
 
 	// Interactive selection state (preview pane)
-	interactiveSelectionActive    bool
-	interactiveSelStart           selectionPoint // start of selection (line, col)
-	interactiveSelEnd             selectionPoint // end of selection (line, col), col is INCLUSIVE
-	interactiveSelAnchor          selectionPoint // anchor (click point) for drag
-	interactiveSelectionRect      mouse.Rect
+	selection                     ui.SelectionState
 	interactiveCopyPasteHintShown bool
 
 	// Kanban view state
@@ -941,7 +937,7 @@ func (p *Plugin) cyclePreviewTab(delta int) tea.Cmd {
 	p.resetScrollBaseLineCount() // td-f7c8be: clear snapshot when switching tabs
 
 	if prevTab == PreviewTabOutput && p.previewTab != PreviewTabOutput {
-		p.clearInteractiveSelection()
+		p.selection.Clear()
 	}
 
 	// Load content for the active tab

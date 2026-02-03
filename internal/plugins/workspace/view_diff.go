@@ -112,7 +112,7 @@ func (p *Plugin) renderDiffContentBasicWithHeight(width, height int) string {
 	// Diff highlighting with horizontal scroll support
 	var rendered []string
 	for _, line := range lines[start:end] {
-		line = expandTabs(line, tabStopWidth)
+		line = ui.ExpandTabs(line, tabStopWidth)
 		var styledLine string
 		switch {
 		case strings.HasPrefix(line, "+++") || strings.HasPrefix(line, "---"):
@@ -243,7 +243,7 @@ func (p *Plugin) renderFilePickerModal(background string) string {
 
 // colorDiffLine applies basic diff coloring using theme styles.
 func (p *Plugin) colorDiffLine(line string, width int) string {
-	line = expandTabs(line, tabStopWidth)
+	line = ui.ExpandTabs(line, tabStopWidth)
 	if len(line) == 0 {
 		return line
 	}

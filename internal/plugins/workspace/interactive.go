@@ -460,7 +460,7 @@ func (p *Plugin) enterInteractiveMode() tea.Cmd {
 		LastKeyTime:   time.Now(),
 		CursorVisible: true, // Assume visible until we get first cursor query result
 	}
-	p.clearInteractiveSelection()
+	p.selection.Clear()
 
 	p.viewMode = ViewModeInteractive
 
@@ -736,7 +736,7 @@ func (p *Plugin) exitInteractiveMode() {
 		p.interactiveState.Active = false
 	}
 	p.interactiveState = nil
-	p.clearInteractiveSelection()
+	p.selection.Clear()
 	p.viewMode = ViewModeList
 }
 

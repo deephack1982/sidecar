@@ -10,59 +10,16 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	app "github.com/marcus/sidecar/internal/app"
 	"github.com/marcus/sidecar/internal/mouse"
+	"github.com/marcus/sidecar/internal/ui"
 )
-
-// selectionPoint represents a position in the output buffer as (line, col).
-// col is in visual space (post-tab-expansion, accounting for multi-width chars).
-// endCol convention: INCLUSIVE — the character under the cursor IS selected.
-type selectionPoint struct {
-	line int // buffer line index, -1 = unset
-	col  int // visual column, -1 = unset
-}
-
-// before returns true if p is before other in document order.
-func (p selectionPoint) before(other selectionPoint) bool {
-	return p.line < other.line || (p.line == other.line && p.col < other.col)
-}
-
-// valid returns true if the point has been set.
-func (p selectionPoint) valid() bool {
-	return p.line >= 0 && p.col >= 0
-}
-
-func (p *Plugin) clearInteractiveSelection() {
-	p.interactiveSelectionActive = false
-	p.interactiveSelStart = selectionPoint{-1, -1}
-	p.interactiveSelEnd = selectionPoint{-1, -1}
-	p.interactiveSelAnchor = selectionPoint{-1, -1}
-	p.interactiveSelectionRect = mouse.Rect{}
-}
-
-func (p *Plugin) hasInteractiveSelection() bool {
-	return p.interactiveSelStart.valid() && p.interactiveSelEnd.valid()
-}
-
-func (p *Plugin) isInteractiveLineSelected(lineIdx int) bool {
-	if !p.hasInteractiveSelection() {
-		return false
-	}
-	start := p.interactiveSelStart.line
-	end := p.interactiveSelEnd.line
-	if start > end {
-		start, end = end, start
-	}
-	return lineIdx >= start && lineIdx <= end
-}
 
 // interactiveColAtX maps a viewport X coordinate to a visual column in the given line.
 // The returned column is in visual space (post-tab-expansion, accounting for multi-width chars).
 func (p *Plugin) interactiveColAtX(x, lineIdx int) (int, bool) {
-	relX := x - p.interactiveSelectionRect.X - panelOverhead/2
+	relX := x - p.selection.ViewRect.X - panelOverhead/2
 	if relX < 0 {
 		return 0, false
 	}
-
-	visualCol := relX
 
 	buf := p.interactiveOutputBuffer()
 	if buf == nil {
@@ -76,43 +33,9 @@ func (p *Plugin) interactiveColAtX(x, lineIdx int) (int, bool) {
 	if len(lines) == 0 {
 		return 0, true
 	}
-	expanded := expandTabs(lines[0], tabStopWidth)
+	expanded := ui.ExpandTabs(lines[0], tabStopWidth)
 
-	// Walk expanded line grapheme-by-grapheme to find column
-	state := ansi.NormalState
-	cumWidth := 0
-	lastCharCol := 0
-	hasChars := false
-
-	remaining := expanded
-	for len(remaining) > 0 {
-		seq, width, n, newState := ansi.GraphemeWidth.DecodeSequenceInString(remaining, state, nil)
-		if n <= 0 {
-			break
-		}
-		_ = seq
-		if width > 0 {
-			hasChars = true
-			// If visualCol lands within this character's cells
-			if visualCol >= cumWidth && visualCol < cumWidth+width {
-				return cumWidth, true // snap to start of character
-			}
-			lastCharCol = cumWidth
-			cumWidth += width
-		}
-		state = newState
-		remaining = remaining[n:]
-	}
-
-	if !hasChars {
-		return 0, true
-	}
-
-	// Beyond line end: clamp to last character column (inclusive)
-	if visualCol >= cumWidth {
-		return lastCharCol, true
-	}
-	return visualCol, true
+	return ui.VisualColAtRelativeX(expanded, relX), true
 }
 
 // interactiveCharAtXY maps viewport coordinates to line index + visual column.
@@ -125,47 +48,18 @@ func (p *Plugin) interactiveCharAtXY(x, y int) (int, int, bool) {
 	return lineIdx, col, ok
 }
 
-// getLineSelectionCols returns the visual column range [start, end] (inclusive)
-// that is selected on the given line. Returns (-1, -1) if the line is not selected.
-// end == -1 means "to end of line".
-func (p *Plugin) getLineSelectionCols(lineIdx int) (startCol, endCol int) {
-	if !p.hasInteractiveSelection() {
-		return -1, -1
-	}
-
-	selStart := p.interactiveSelStart
-	selEnd := p.interactiveSelEnd
-
-	if lineIdx < selStart.line || lineIdx > selEnd.line {
-		return -1, -1
-	}
-
-	if selStart.line == selEnd.line {
-		// Single-line selection
-		return selStart.col, selEnd.col
-	} else if lineIdx == selStart.line {
-		// First line: from startCol to end of line
-		return selStart.col, -1
-	} else if lineIdx == selEnd.line {
-		// Last line: from start to endCol (inclusive)
-		return 0, selEnd.col
-	}
-	// Middle line: entire line
-	return 0, -1
-}
-
 func (p *Plugin) interactiveLineIndexAtY(y int) (int, bool) {
 	if p.interactiveState == nil || !p.interactiveState.Active {
 		return 0, false
 	}
-	if p.interactiveSelectionRect.W == 0 || p.interactiveSelectionRect.H == 0 {
+	if p.selection.ViewRect.W == 0 || p.selection.ViewRect.H == 0 {
 		return 0, false
 	}
 	if p.interactiveState.VisibleEnd <= p.interactiveState.VisibleStart {
 		return 0, false
 	}
 
-	contentRow := y - p.interactiveSelectionRect.Y - 1 // account for top border
+	contentRow := y - p.selection.ViewRect.Y - 1 // account for top border
 	if contentRow < 0 {
 		return 0, false
 	}
@@ -189,18 +83,16 @@ func (p *Plugin) prepareInteractiveDrag(action mouse.MouseAction) tea.Cmd {
 	if action.Region == nil {
 		return nil
 	}
-	p.interactiveSelectionRect = action.Region.Rect
+	// Set ViewRect before charAtXY so interactiveLineIndexAtY can use it
+	p.selection.ViewRect = action.Region.Rect
 
 	lineIdx, col, ok := p.interactiveCharAtXY(action.X, action.Y)
 	if !ok {
-		p.clearInteractiveSelection()
+		p.selection.Clear()
 		return nil
 	}
 
-	p.interactiveSelectionActive = false
-	p.interactiveSelStart = selectionPoint{-1, -1}
-	p.interactiveSelEnd = selectionPoint{-1, -1}
-	p.interactiveSelAnchor = selectionPoint{lineIdx, col}
+	p.selection.PrepareDrag(lineIdx, col, action.Region.Rect)
 	p.autoScrollOutput = false
 
 	p.mouseHandler.StartDrag(action.X, action.Y, regionPreviewPane, lineIdx)
@@ -213,35 +105,12 @@ func (p *Plugin) handleInteractiveSelectionDrag(action mouse.MouseAction) tea.Cm
 		return nil
 	}
 
-	current := selectionPoint{lineIdx, col}
-	anchor := p.interactiveSelAnchor
-
-	// First drag motion: activate selection
-	if !p.interactiveSelStart.valid() {
-		p.interactiveSelStart = anchor
-		p.interactiveSelEnd = anchor
-	}
-
-	p.interactiveSelectionActive = true
-
-	// Order start/end by document position
-	if current.before(anchor) {
-		p.interactiveSelStart = current
-		p.interactiveSelEnd = anchor
-	} else {
-		p.interactiveSelStart = anchor
-		p.interactiveSelEnd = current
-	}
+	p.selection.HandleDrag(lineIdx, col)
 	return nil
 }
 
 func (p *Plugin) finishInteractiveSelection() tea.Cmd {
-	if !p.interactiveSelStart.valid() {
-		// No drag occurred — click without motion, clear state
-		p.clearInteractiveSelection()
-		return nil
-	}
-	p.interactiveSelectionActive = false
+	p.selection.FinishDrag()
 	return nil
 }
 
@@ -261,7 +130,7 @@ func (p *Plugin) interactiveOutputBuffer() *OutputBuffer {
 }
 
 func (p *Plugin) interactiveSelectionLines() []string {
-	if !p.hasInteractiveSelection() {
+	if !p.selection.HasSelection() {
 		return nil
 	}
 	buf := p.interactiveOutputBuffer()
@@ -274,10 +143,8 @@ func (p *Plugin) interactiveSelectionLines() []string {
 		return nil
 	}
 
-	start := p.interactiveSelStart
-	end := p.interactiveSelEnd
-	startLine := start.line
-	endLine := end.line
+	startLine := p.selection.Start.Line
+	endLine := p.selection.End.Line
 	if startLine > endLine {
 		startLine, endLine = endLine, startLine
 	}
@@ -296,30 +163,7 @@ func (p *Plugin) interactiveSelectionLines() []string {
 		return nil
 	}
 
-	// Expand tabs to match visual columns
-	for i := range lines {
-		lines[i] = expandTabs(lines[i], tabStopWidth)
-	}
-
-	startCol := start.col
-	endCol := end.col
-
-	if len(lines) == 1 {
-		// Single line: extract [startCol, endCol] inclusive
-		lines[0] = visualSubstring(lines[0], startCol, endCol+1)
-	} else {
-		// First line: from startCol to end
-		lines[0] = visualSubstring(lines[0], startCol, -1)
-		// Last line: from start to endCol (inclusive)
-		lastIdx := len(lines) - 1
-		lines[lastIdx] = visualSubstring(lines[lastIdx], 0, endCol+1)
-		// Middle lines: full text, ANSI stripped
-		for i := 1; i < lastIdx; i++ {
-			lines[i] = ansi.Strip(lines[i])
-		}
-	}
-
-	return lines
+	return p.selection.SelectedText(lines, startLine, tabStopWidth)
 }
 
 func (p *Plugin) interactiveVisibleLines() []string {

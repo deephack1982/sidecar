@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/marcus/sidecar/internal/features"
 	"github.com/marcus/sidecar/internal/styles"
+	"github.com/marcus/sidecar/internal/ui"
 )
 
 // renderPreviewContent renders the preview pane content (no borders).
@@ -172,7 +173,7 @@ func (p *Plugin) truncateAllLines(content string, maxWidth int) string {
 	for i := 0; i <= len(content); i++ {
 		if i == len(content) || content[i] == '\n' {
 			line := content[start:i]
-			line = expandTabs(line, tabStopWidth)
+			line = ui.ExpandTabs(line, tabStopWidth)
 			if lipgloss.Width(line) > maxWidth {
 				line = p.truncateCache.Truncate(line, maxWidth, "")
 			}
@@ -323,12 +324,12 @@ func (p *Plugin) renderOutputContent(width, height int) string {
 	// and avoid cellbuf allocation churn from varying offsets.
 	displayLines := make([]string, 0, len(lines))
 	for i, line := range lines {
-		displayLine := expandTabs(line, tabStopWidth)
+		displayLine := ui.ExpandTabs(line, tabStopWidth)
 		// Apply character-level selection background BEFORE truncation
-		if interactive && p.hasInteractiveSelection() {
-			startCol, endCol := p.getLineSelectionCols(start + i)
+		if interactive && p.selection.HasSelection() {
+			startCol, endCol := p.selection.GetLineSelectionCols(start + i)
 			if startCol >= 0 {
-				displayLine = injectCharacterRangeBackground(displayLine, startCol, endCol)
+				displayLine = ui.InjectCharacterRangeBackground(displayLine, startCol, endCol)
 			}
 		}
 		// Truncate to width
@@ -523,12 +524,12 @@ func (p *Plugin) renderShellOutput(width, height int) string {
 	// Apply horizontal offset and truncate each line
 	displayLines := make([]string, 0, len(lines))
 	for i, line := range lines {
-		displayLine := expandTabs(line, tabStopWidth)
+		displayLine := ui.ExpandTabs(line, tabStopWidth)
 		// Apply character-level selection background BEFORE truncation
-		if interactive && p.hasInteractiveSelection() {
-			startCol, endCol := p.getLineSelectionCols(start + i)
+		if interactive && p.selection.HasSelection() {
+			startCol, endCol := p.selection.GetLineSelectionCols(start + i)
 			if startCol >= 0 {
-				displayLine = injectCharacterRangeBackground(displayLine, startCol, endCol)
+				displayLine = ui.InjectCharacterRangeBackground(displayLine, startCol, endCol)
 			}
 		}
 		displayLine = p.truncateCache.Truncate(displayLine, displayWidth, "")

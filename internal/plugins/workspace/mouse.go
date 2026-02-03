@@ -557,7 +557,7 @@ func (p *Plugin) handleMouseClick(action mouse.MouseAction) tea.Cmd {
 			p.autoScrollOutput = true
 			p.resetScrollBaseLineCount() // td-f7c8be: clear snapshot when switching tabs
 			if prevTab == PreviewTabOutput && p.previewTab != PreviewTabOutput {
-				p.clearInteractiveSelection()
+				p.selection.Clear()
 			}
 
 			// Load content for the selected tab
@@ -952,7 +952,7 @@ func (p *Plugin) handleMouseDragEnd() tea.Cmd {
 		return nil
 	}
 
-	if p.interactiveSelectionActive {
+	if p.selection.Active {
 		return p.finishInteractiveSelection()
 	}
 
