@@ -26,7 +26,11 @@ func (p *Plugin) fetchPRList() tea.Cmd {
 		cmd.Stderr = &stderr
 		output, err := cmd.Output()
 		if err != nil {
-			return FetchPRListMsg{Err: fmt.Errorf("gh pr list: %s", strings.TrimSpace(stderr.String()))}
+			errMsg := strings.TrimSpace(stderr.String())
+			if errMsg == "" {
+				errMsg = err.Error()
+			}
+			return FetchPRListMsg{Err: fmt.Errorf("gh pr list: %s", errMsg)}
 		}
 
 		var prs []PRListItem
@@ -130,6 +134,9 @@ func (p *Plugin) adjustFetchPRScroll() {
 	}
 	if p.fetchPRCursor >= p.fetchPRScrollOffset+maxVisible {
 		p.fetchPRScrollOffset = p.fetchPRCursor - maxVisible + 1
+	}
+	if p.fetchPRScrollOffset < 0 {
+		p.fetchPRScrollOffset = 0
 	}
 }
 

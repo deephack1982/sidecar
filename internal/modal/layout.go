@@ -231,7 +231,7 @@ func totalHeight(sections []renderedSection) int {
 // renderScrollbar renders a single-column vertical scrollbar.
 // Uses the same visual style as ui.RenderScrollbar but avoids an import cycle.
 func renderScrollbar(totalItems, scrollOffset, viewportHeight int) string {
-	if viewportHeight < 1 {
+	if viewportHeight < 1 || totalItems < 1 {
 		return ""
 	}
 

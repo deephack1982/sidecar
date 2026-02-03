@@ -13,6 +13,9 @@ import (
 // ANSI sequence after every reset, then padding short lines with
 // background-colored spaces.
 func FillBackground(content string, width int, bgColor lipgloss.Color) string {
+	if width <= 0 {
+		return content
+	}
 	bgSeq := BgANSISeqFor(bgColor)
 	if bgSeq == "" {
 		return content

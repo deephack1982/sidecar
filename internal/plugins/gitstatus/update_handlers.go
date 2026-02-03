@@ -654,6 +654,7 @@ func (p *Plugin) closeDiffView() {
 	p.diffCommitSubject = ""
 	p.diffCommitShortHash = ""
 	p.diffFile = ""
+	p.diffBackWidth = 0
 	p.viewMode = p.diffReturnMode
 	if p.diffReturnMode == ViewModeStatus && p.previewCommit != nil {
 		p.activePane = PaneDiff
