@@ -248,6 +248,9 @@ type Plugin struct {
 	pendingClickRegion   string      // Region that was clicked (regionTreePane, etc)
 	pendingClickData     interface{} // Data associated with the click
 	exitConfirmSelection int         // 0=Save&Exit, 1=Exit without saving, 2=Cancel
+
+	// Inline edit copy/paste hint state
+	inlineEditCopyPasteHintShown bool // True after showing copy/paste hint toast
 }
 
 // New creates a new File Browser plugin.
@@ -479,7 +482,20 @@ func (p *Plugin) Update(msg tea.Msg) (plugin.Plugin, tea.Cmd) {
 			// Route mouse through handleMouse for click-away detection
 			return p.handleMouse(msg)
 
-		case tea.KeyMsg, tty.EscapeTimerMsg, tty.CaptureResultMsg,
+		case tea.KeyMsg:
+			// Intercept copy key before delegating to tty model
+			if msg.String() == p.getInlineEditCopyKey() {
+				return p, p.copyInlineEditorOutputCmd()
+			}
+			cmd := p.inlineEditor.Update(msg)
+			// Check if editor exited
+			if !p.inlineEditor.IsActive() {
+				p.exitInlineEditMode()
+				return p, tea.Batch(cmd, p.refresh())
+			}
+			return p, cmd
+
+		case tty.EscapeTimerMsg, tty.CaptureResultMsg,
 			tty.PollTickMsg, tty.PaneResizedMsg, tty.SessionDeadMsg, tty.PasteResultMsg:
 			cmd := p.inlineEditor.Update(msg)
 			// Check if editor exited

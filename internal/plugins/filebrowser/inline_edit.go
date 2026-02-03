@@ -9,8 +9,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/atotto/clipboard"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
+	"github.com/marcus/sidecar/internal/app"
 	"github.com/marcus/sidecar/internal/features"
 	"github.com/marcus/sidecar/internal/msg"
 	"github.com/marcus/sidecar/internal/styles"
@@ -138,7 +141,62 @@ func (p *Plugin) handleInlineEditStarted(msg InlineEditStartedMsg) tea.Cmd {
 	height := p.calculateInlineEditorHeight()
 	p.inlineEditor.SetDimensions(width, height)
 
-	return p.inlineEditor.Enter(msg.SessionName, "")
+	enterCmd := p.inlineEditor.Enter(msg.SessionName, "")
+
+	// Show copy/paste hint toast on first entry
+	if !p.inlineEditCopyPasteHintShown {
+		p.inlineEditCopyPasteHintShown = true
+		hintCmd := func() tea.Msg {
+			return app.ToastMsg{
+				Message:  fmt.Sprintf("Copy/paste: %s / %s", p.getInlineEditCopyKey(), p.getInlineEditPasteKey()),
+				Duration: 3 * time.Second,
+			}
+		}
+		return tea.Batch(enterCmd, hintCmd)
+	}
+	return enterCmd
+}
+
+// getInlineEditCopyKey returns the configured copy key for inline edit mode.
+func (p *Plugin) getInlineEditCopyKey() string {
+	if p.ctx != nil && p.ctx.Config != nil {
+		if key := p.ctx.Config.Plugins.Workspace.InteractiveCopyKey; key != "" {
+			return key
+		}
+	}
+	return "alt+c"
+}
+
+// getInlineEditPasteKey returns the configured paste key for inline edit mode.
+func (p *Plugin) getInlineEditPasteKey() string {
+	if p.ctx != nil && p.ctx.Config != nil {
+		if key := p.ctx.Config.Plugins.Workspace.InteractivePasteKey; key != "" {
+			return key
+		}
+	}
+	return "alt+v"
+}
+
+// copyInlineEditorOutputCmd copies the inline editor output to the clipboard.
+func (p *Plugin) copyInlineEditorOutputCmd() tea.Cmd {
+	return func() tea.Msg {
+		if p.inlineEditor == nil || p.inlineEditor.State == nil || p.inlineEditor.State.OutputBuf == nil {
+			return app.ToastMsg{Message: "No output to copy", Duration: 2 * time.Second}
+		}
+		lines := p.inlineEditor.State.OutputBuf.Lines()
+		if len(lines) == 0 {
+			return app.ToastMsg{Message: "No output to copy", Duration: 2 * time.Second}
+		}
+		stripped := make([]string, 0, len(lines))
+		for _, line := range lines {
+			stripped = append(stripped, ansi.Strip(line))
+		}
+		text := strings.Join(stripped, "\n")
+		if err := clipboard.WriteAll(text); err != nil {
+			return app.ToastMsg{Message: "Copy failed: " + err.Error(), Duration: 2 * time.Second, IsError: true}
+		}
+		return app.ToastMsg{Message: fmt.Sprintf("Copied %d line(s)", len(stripped)), Duration: 2 * time.Second}
+	}
 }
 
 // reattachInlineEditSession re-attaches to an existing tmux session after tab switch.
