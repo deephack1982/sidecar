@@ -48,6 +48,7 @@ adapter.Session{
 	AdapterName: "<Your Name>",
 	AdapterIcon: a.Icon(),
 	FileSize:    info.Size(),  // Required for size-aware performance optimizations
+	Path:        sessionPath,  // Required for tiered watching (absolute path to session file)
 	// ... timestamps, tokens, counts
 }
 ```
@@ -58,6 +59,11 @@ These are used for badges, filtering, and resume commands in the conversations U
 - Dynamic debounce scaling (larger files get longer coalesce windows)
 - Automatic auto-reload disable for huge sessions (>500MB)
 - UI warnings for large sessions
+
+**Important:** Always populate `Path` with the absolute path to the session file. This enables:
+- Tiered watching (HOT/COLD tier management)
+- Session promotion when user selects a conversation
+- Efficient file change detection without directory scans
 
 ## Step-by-step
 
@@ -328,6 +334,13 @@ Adapters don't need to do anything special for turn view—it's computed from me
 - Messages() incremental parse (append to large file) completes in <10ms (benchmark)
 - Cache hit returns results in <1ms (benchmark)
 
+### File Descriptor Management
+- Sessions() populates Path field for all sessions (enables tiered watching)
+- Benchmark FD count with `lsof -c sidecar | wc -l` (target: <500 total)
+- Verify watcher cleanup on plugin Stop() (no leaked FDs)
+- Global-scoped adapters implement WatchScopeProvider interface
+- Watch() events emitted even for COLD tier sessions (via polling)
+
 ## Performance Best Practices
 
 The `Sessions()` method is called frequently (on every watch event). Poorly optimized adapters can cause CPU spikes during active AI sessions. During an active session the hot path fires every ~350ms:
@@ -527,6 +540,54 @@ events <- adapter.Event{
 ```
 
 Without `SessionID`, the plugin falls back to a full `loadSessions()` call on every event.
+
+### File Descriptor Management
+
+Recursive fsnotify watchers can easily consume thousands of file descriptors (FDs). A naive implementation watching all session files across multiple adapters and worktrees can hit ~9K FDs, exhausting system limits and causing watch failures.
+
+**The Tiered Watcher Solution**
+
+Sidecar uses a tiered watching system (`internal/adapter/tieredwatcher`) that dramatically reduces FD usage:
+
+| Tier | Method | Capacity | Latency |
+|------|--------|----------|---------|
+| HOT | fsnotify | Max 3 sessions | Real-time (~100ms) |
+| COLD | Polling | Unlimited | 30 seconds |
+
+**Tier Behavior:**
+- **Auto-promotion**: Most recently modified sessions start in HOT tier
+- **User promotion**: When a user selects a session, it's promoted to HOT
+- **Demotion**: Sessions demote to COLD after 5 minutes of inactivity
+- **Target FD count**: <500 total (vs. ~9K with naive watching)
+
+**Adapter Integration:**
+
+File-based adapters (JSONL, JSON files) use the tiered watcher automatically when they populate `Session.Path`. The tiered watcher handles fsnotify setup, polling, and tier management.
+
+Database adapters (SQLite, etc.) continue to use their own `Watch()` implementation since they typically watch a single database file rather than many session files.
+
+**WatchScopeProvider Interface:**
+
+Adapters that watch global paths (not project-specific) should implement `WatchScopeProvider` to prevent duplicate watchers when the plugin iterates over multiple worktree paths:
+
+```go
+// Optional interface for adapters with global watch scope
+type WatchScopeProvider interface {
+    WatchScope() WatchScope
+}
+
+// In your adapter:
+func (a *Adapter) WatchScope() adapter.WatchScope {
+    // Return Global if your adapter watches ~/.myai/sessions/ regardless of project
+    return adapter.WatchScopeGlobal
+    // Return Project (default) if your adapter watches project-specific paths
+    // return adapter.WatchScopeProject
+}
+```
+
+Examples:
+- **Global scope**: Codex (watches `~/.codex/sessions/`), Warp (watches global SQLite DB)
+- **Project scope**: Claude Code (watches `.claude/projects/<hash>/` per project)
 
 ### Directory Listing Cache
 
