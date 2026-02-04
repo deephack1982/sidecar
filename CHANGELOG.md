@@ -2,6 +2,12 @@
 
 All notable changes to sidecar are documented here.
 
+## [v0.65.0] - 2026-02-03
+
+### Performance
+
+- Further FD tuning with codex integration
+
 ## [v0.64.0] - 2026-02-03
 
 ### Features
