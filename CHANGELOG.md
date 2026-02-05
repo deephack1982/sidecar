@@ -2,6 +2,24 @@
 
 All notable changes to sidecar are documented here.
 
+## [v0.66.0] - 2026-02-05
+
+### Features
+
+- Offer pull when push is rejected because remote is ahead (Pull button in error modal)
+- Detect and display missing worktrees with pruning support
+- Add IsMissing field to worktree struct for missing worktree detection
+
+### Bug Fixes
+
+- Show pull/fetch commands in git-status-commits context (footer and command palette)
+- Consistent role names and clearer token display in conversations
+- Update file delete shortcuts
+
+### Documentation
+
+- Add package-level doc comments for all internal packages
+
 ## [v0.65.1] - 2026-02-04
 
 ### Bug Fixes
