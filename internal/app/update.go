@@ -1848,7 +1848,9 @@ func (m *Model) handleProjectAddThemePickerKeys(msg tea.KeyMsg) (tea.Model, tea.
 
 	case "enter":
 		if m.projectAddThemeCursor >= 0 && m.projectAddThemeCursor < len(m.projectAddThemeFiltered) {
-			m.projectAddThemeSelected = m.projectAddThemeFiltered[m.projectAddThemeCursor]
+			if m.projectAdd != nil {
+				m.projectAdd.themeSelected = m.projectAddThemeFiltered[m.projectAddThemeCursor]
+			}
 		}
 		m.projectAddModalWidth = 0 // Force modal rebuild to show new theme
 		m.resetProjectAddThemePicker()
@@ -1920,7 +1922,9 @@ func (m *Model) handleProjectAddCommunityKeys(msg tea.KeyMsg) (tea.Model, tea.Cm
 
 	case "enter":
 		if m.projectAddCommunityCursor >= 0 && m.projectAddCommunityCursor < len(m.projectAddCommunityList) {
-			m.projectAddThemeSelected = m.projectAddCommunityList[m.projectAddCommunityCursor]
+			if m.projectAdd != nil {
+				m.projectAdd.themeSelected = m.projectAddCommunityList[m.projectAddCommunityCursor]
+			}
 		}
 		m.projectAddModalWidth = 0 // Force modal rebuild to show new theme
 		m.resetProjectAddThemePicker()

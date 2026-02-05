@@ -80,6 +80,13 @@ type TabBounds struct {
 	Start, End int
 }
 
+type projectAddState struct {
+	nameInput     textinput.Model
+	pathInput     textinput.Model
+	errorMessage  string
+	themeSelected string
+}
+
 // Model is the root Bubble Tea model for the sidecar application.
 type Model struct {
 	// Configuration
@@ -123,9 +130,7 @@ type Model struct {
 
 	// Project add sub-mode (within project switcher)
 	projectAddMode         bool
-	projectAddNameInput    textinput.Model
-	projectAddPathInput    textinput.Model
-	projectAddError        string
+	projectAdd             *projectAddState
 	projectAddModal        *modal.Modal
 	projectAddModalWidth   int
 	projectAddMouseHandler *mouse.Handler
@@ -136,7 +141,6 @@ type Model struct {
 	projectAddThemeScroll     int
 	projectAddThemeInput      textinput.Model
 	projectAddThemeFiltered   []string // filtered built-in theme list
-	projectAddThemeSelected   string   // selected theme name (empty = use global)
 	projectAddCommunityMode   bool     // in community sub-browser?
 	projectAddCommunityList   []string // filtered community scheme names
 	projectAddCommunityCursor int
@@ -855,28 +859,35 @@ My code is located at: [TELL ME WHERE YOUR CODE DIRECTORIES ARE]`
 // initProjectAdd initializes the project add sub-mode.
 func (m *Model) initProjectAdd() {
 	m.projectAddMode = true
-	m.projectAddError = ""
 	m.clearProjectAddModal()
+
+	if m.projectAdd == nil {
+		m.projectAdd = &projectAddState{}
+	}
+	m.projectAdd.errorMessage = ""
+	m.projectAdd.themeSelected = ""
 
 	nameInput := textinput.New()
 	nameInput.Placeholder = "project-name"
 	nameInput.CharLimit = 40
 	nameInput.Width = 36
 	nameInput.Focus()
-	m.projectAddNameInput = nameInput
+	m.projectAdd.nameInput = nameInput
 
 	pathInput := textinput.New()
 	pathInput.Placeholder = "~/code/project-path"
 	pathInput.CharLimit = 200
 	pathInput.Width = 36
-	m.projectAddPathInput = pathInput
+	m.projectAdd.pathInput = pathInput
 }
 
 // resetProjectAdd resets the project add sub-mode state.
 func (m *Model) resetProjectAdd() {
 	m.projectAddMode = false
-	m.projectAddError = ""
-	m.projectAddThemeSelected = ""
+	if m.projectAdd != nil {
+		m.projectAdd.errorMessage = ""
+		m.projectAdd.themeSelected = ""
+	}
 	m.clearProjectAddModal()
 	m.resetProjectAddThemePicker()
 }
@@ -930,8 +941,12 @@ func (m *Model) previewProjectAddCommunity() {
 // validateProjectAdd validates the project add form inputs.
 // Returns an error message or empty string if valid.
 func (m *Model) validateProjectAdd() string {
-	name := strings.TrimSpace(m.projectAddNameInput.Value())
-	path := strings.TrimSpace(m.projectAddPathInput.Value())
+	if m.projectAdd == nil {
+		return "Name is required"
+	}
+
+	name := strings.TrimSpace(m.projectAdd.nameInput.Value())
+	path := strings.TrimSpace(m.projectAdd.pathInput.Value())
 
 	if name == "" {
 		return "Name is required"
@@ -970,8 +985,14 @@ func (m *Model) validateProjectAdd() string {
 
 // saveProjectAdd saves the new project to config and refreshes the list.
 func (m *Model) saveProjectAdd() tea.Cmd {
-	name := strings.TrimSpace(m.projectAddNameInput.Value())
-	path := strings.TrimSpace(m.projectAddPathInput.Value())
+	if m.projectAdd == nil {
+		return func() tea.Msg {
+			return ToastMsg{Message: "Project add state missing", Duration: 3 * time.Second, IsError: true}
+		}
+	}
+
+	name := strings.TrimSpace(m.projectAdd.nameInput.Value())
+	path := strings.TrimSpace(m.projectAdd.pathInput.Value())
 
 	// Build project config
 	proj := config.ProjectConfig{
@@ -980,15 +1001,15 @@ func (m *Model) saveProjectAdd() tea.Cmd {
 	}
 
 	// Add theme if user selected one
-	if m.projectAddThemeSelected != "" && m.projectAddThemeSelected != "(use global)" {
-		if community.GetScheme(m.projectAddThemeSelected) != nil {
+	if m.projectAdd.themeSelected != "" && m.projectAdd.themeSelected != "(use global)" {
+		if community.GetScheme(m.projectAdd.themeSelected) != nil {
 			proj.Theme = &config.ThemeConfig{
 				Name:      "default",
-				Community: m.projectAddThemeSelected,
+				Community: m.projectAdd.themeSelected,
 			}
 		} else {
 			proj.Theme = &config.ThemeConfig{
-				Name: m.projectAddThemeSelected,
+				Name: m.projectAdd.themeSelected,
 			}
 		}
 	}
