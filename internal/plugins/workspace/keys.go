@@ -581,7 +581,7 @@ func (p *Plugin) handleListKeys(msg tea.KeyMsg) tea.Cmd {
 		}
 		p.viewMode = ViewModeConfirmDelete
 		p.deleteConfirmWorktree = wt
-		p.deleteLocalBranchOpt = false // Default: don't delete branches
+		p.deleteLocalBranchOpt = wt.IsMissing // Default ON when folder already gone
 		p.deleteRemoteBranchOpt = false
 		p.deleteHasRemote = false
 		p.deleteIsMainBranch = isMainBranch(p.ctx.WorkDir, wt.Branch)

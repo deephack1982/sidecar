@@ -513,6 +513,9 @@ func (p *Plugin) renderWorktreeItem(wt *Worktree, selected bool, width int) stri
 	if wt.IsOrphaned {
 		parts = append(parts, "⚠ session ended")
 	}
+	if wt.IsMissing {
+		parts = append(parts, "✗ folder missing")
+	}
 
 	// When selected, use plain text to ensure consistent background
 	if isSelected {
@@ -615,6 +618,9 @@ func (p *Plugin) renderWorktreeItem(wt *Worktree, selected bool, width int) stri
 	}
 	if wt.IsOrphaned {
 		styledParts = append(styledParts, styles.StatusModified.Render("⚠ session ended"))
+	}
+	if wt.IsMissing {
+		styledParts = append(styledParts, styles.StatusModified.Render("✗ folder missing"))
 	}
 
 	// Build lines with styled elements

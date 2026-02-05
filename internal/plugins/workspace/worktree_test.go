@@ -100,7 +100,8 @@ func TestParseWorktreeList(t *testing.T) {
 		wantCount   int
 		wantNames   []string
 		wantBranch  []string
-		wantIsMain  []bool // Track which worktrees should be marked as main
+		wantIsMain    []bool // Track which worktrees should be marked as main
+		wantIsMissing []bool // Track which worktrees should be marked as missing
 	}{
 		{
 			name: "single worktree",
@@ -235,6 +236,42 @@ branch refs/heads/feature/auth/login
 			wantBranch: []string{"main", "feature/auth/login"},
 			wantIsMain: []bool{true, false},
 		},
+		{
+			name: "prunable worktree (folder missing)",
+			output: `worktree /home/user/project
+HEAD abc123
+branch refs/heads/main
+
+worktree /home/user/feature-deleted
+HEAD def456
+branch refs/heads/feature-deleted
+prunable gitdir file points to non-existent location
+`,
+			mainWorkdir:   "/home/user/project",
+			wantCount:     2,
+			wantNames:     []string{"project", "feature-deleted"},
+			wantBranch:    []string{"main", "feature-deleted"},
+			wantIsMain:    []bool{true, false},
+			wantIsMissing: []bool{false, true},
+		},
+		{
+			name: "prunable with detached head",
+			output: `worktree /home/user/project
+HEAD abc123
+branch refs/heads/main
+
+worktree /home/user/old-checkout
+HEAD def456
+detached
+prunable gitdir file points to non-existent location
+`,
+			mainWorkdir:   "/home/user/project",
+			wantCount:     2,
+			wantNames:     []string{"project", "old-checkout"},
+			wantBranch:    []string{"main", "(detached)"},
+			wantIsMain:    []bool{true, false},
+			wantIsMissing: []bool{false, true},
+		},
 	}
 
 	for _, tt := range tests {
@@ -257,6 +294,9 @@ branch refs/heads/feature/auth/login
 				}
 				if i < len(tt.wantIsMain) && wt.IsMain != tt.wantIsMain[i] {
 					t.Errorf("worktree[%d].IsMain = %v, want %v", i, wt.IsMain, tt.wantIsMain[i])
+				}
+				if i < len(tt.wantIsMissing) && wt.IsMissing != tt.wantIsMissing[i] {
+					t.Errorf("worktree[%d].IsMissing = %v, want %v", i, wt.IsMissing, tt.wantIsMissing[i])
 				}
 			}
 		})

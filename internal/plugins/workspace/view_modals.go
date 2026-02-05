@@ -252,11 +252,19 @@ func (p *Plugin) deleteConfirmWarningSection() modal.Section {
 		warningStyle := lipgloss.NewStyle().Foreground(styles.Warning)
 
 		var sb strings.Builder
-		sb.WriteString(warningStyle.Render("This will:"))
-		sb.WriteString("\n")
-		sb.WriteString(dimText("  • Remove the working directory"))
-		sb.WriteString("\n")
-		sb.WriteString(dimText("  • Uncommitted changes will be lost"))
+		if p.deleteConfirmWorktree != nil && p.deleteConfirmWorktree.IsMissing {
+			sb.WriteString(warningStyle.Render("This will:"))
+			sb.WriteString("\n")
+			sb.WriteString(dimText("  • Directory already removed"))
+			sb.WriteString("\n")
+			sb.WriteString(dimText("  • Clean up git worktree metadata"))
+		} else {
+			sb.WriteString(warningStyle.Render("This will:"))
+			sb.WriteString("\n")
+			sb.WriteString(dimText("  • Remove the working directory"))
+			sb.WriteString("\n")
+			sb.WriteString(dimText("  • Uncommitted changes will be lost"))
+		}
 
 		return modal.RenderedSection{Content: sb.String()}
 	}, nil)

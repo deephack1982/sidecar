@@ -100,6 +100,9 @@ func (p *Plugin) Update(msg tea.Msg) (plugin.Plugin, tea.Cmd) {
 			}
 			// Load stats, task links, and agent types for each worktree
 			for _, wt := range p.worktrees {
+				if wt.IsMissing {
+					continue // Skip metadata for worktrees with missing directories
+				}
 				cmds = append(cmds, p.loadStats(wt.Path))
 				// Load linked task ID from .sidecar-task file
 				wt.TaskID = loadTaskLink(wt.Path)
