@@ -814,7 +814,7 @@ function WorkflowSection() {
   return (
     <section className="sc-workflow">
       <div className="container">
-        <h2 className="sc-showcaseTitle" style={{ textAlign: 'center', marginBottom: '48px' }}>The Workflow</h2>
+        <h2 className="sc-showcaseTitle" style={{ textAlign: 'center', marginBottom: '48px' }}>The Sidecar Workflow</h2>
         
         <div className="sc-workflowGrid">
           
@@ -880,6 +880,14 @@ export default function Home() {
   const { siteConfig } = useDocusaurusContext();
   const [activeTab, setActiveTab] = useState('td');
   const [showInstallMethods, setShowInstallMethods] = useState(false);
+  const [showVideoModal, setShowVideoModal] = useState(false);
+
+  useEffect(() => {
+    if (!showVideoModal) return;
+    const onKey = (e) => { if (e.key === 'Escape') setShowVideoModal(false); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [showVideoModal]);
 
   const handleTabChange = (tab) => {
     setActiveTab(tab);
@@ -944,6 +952,16 @@ export default function Home() {
           </div>
         </div>
       </header>
+
+      <div className="sc-videoCta">
+        <button className="sc-videoLink" onClick={() => setShowVideoModal(true)}>
+          <span className="sc-videoPlayIcon">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><polygon points="6,3 20,12 6,21" /></svg>
+          </span>
+          <span className="sc-videoLinkText">Watch the demo</span>
+          <span className="sc-videoDuration">10 min</span>
+        </button>
+      </div>
 
       <section className="sc-demoSection">
         <div className="container">
@@ -1399,6 +1417,23 @@ export default function Home() {
                     </div>
                   </div>
                 </div>
+              </div>
+            </div>
+          </div>
+        )}
+        {showVideoModal && (
+          <div className="sc-modal-overlay sc-videoModal-overlay" onClick={() => setShowVideoModal(false)}>
+            <div className="sc-videoModal" onClick={(e) => e.stopPropagation()}>
+              <button className="sc-videoModal-close" onClick={() => setShowVideoModal(false)} aria-label="Close video">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+              <div className="sc-videoModal-frame">
+                <iframe
+                  src="https://www.youtube.com/embed/5QZxWmDl_tc?autoplay=1&rel=0&modestbranding=1"
+                  title="Sidecar Demo"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  allowFullScreen
+                />
               </div>
             </div>
           </div>
