@@ -53,16 +53,8 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: golangci-lint (new issues on PR branch)
-        if: github.event_name == 'pull_request'
+      - name: golangci-lint (full codebase)
         uses: golangci/golangci-lint-action@v8
         with:
           version: v2.8.0
-          args: --new-from-merge-base=origin/main ./...
-
-      - name: golangci-lint (new issues in latest commit)
-        if: github.event_name == 'push'
-        uses: golangci/golangci-lint-action@v8
-        with:
-          version: v2.8.0
-          args: --new-from-rev=HEAD~1 ./...
+          args: ./...
