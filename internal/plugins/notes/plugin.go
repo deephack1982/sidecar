@@ -669,9 +669,9 @@ func (p *Plugin) handleKey(msg tea.KeyMsg) (plugin.Plugin, tea.Cmd) {
 		}
 		return p, nil
 	case "X":
-		// Delete note (only in Active view)
+		// Delete note with confirmation (only in Active view)
 		if p.viewFilter == FilterActive {
-			return p, p.deleteNote()
+			return p, p.openDeleteModal()
 		}
 		return p, nil
 	case "x":
