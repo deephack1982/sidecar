@@ -2,6 +2,28 @@
 
 All notable changes to sidecar are documented here.
 
+## [v0.68.0] - 2026-02-07
+
+### Features
+
+- Add ProjectRoot to plugin.Context for worktree-aware shared state
+- Convert 17 docs/guides into .claude/skills for AI agent discovery
+- Focus files pane when clicking markdown links
+
+### Bug Fixes
+
+- Fix splitFirst OOB panic by using strings.SplitN
+- Resolve td root via git-common-dir for external worktrees
+
+### Improvements
+
+- Resolve all 360 golangci-lint issues across codebase
+- Make lint-all CI-blocking
+
+### Dependencies
+
+- Update td to v0.31.0
+
 ## [v0.67.0] - 2026-02-06
 
 ### Features
