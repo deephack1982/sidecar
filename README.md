@@ -14,11 +14,21 @@ Sidecar puts your entire development workflow in one shell: plan tasks with [td]
 
 ## Quick Install
 
+### macOS (recommended)
+
+```bash
+brew install marcus/tap/sidecar
+```
+
+This builds from source and avoids macOS Gatekeeper warnings.
+
+### Linux / Other
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/marcus/sidecar/main/scripts/setup.sh | bash
 ```
 
-**Also available via:** `brew install marcus/tap/sidecar` · [Binary downloads](https://github.com/marcus/sidecar/releases) · [Manual install](docs/getting-started.md)
+**More options:** [Binary downloads](https://github.com/marcus/sidecar/releases) · [Manual install](docs/getting-started.md)
 
 ## Requirements
 
