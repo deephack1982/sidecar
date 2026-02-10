@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -49,12 +50,51 @@ type msgCacheEntry struct {
 // New creates a new Amp adapter.
 func New() *Adapter {
 	home, _ := os.UserHomeDir()
+	threadsDir := findAmpThreadsDir(home)
 	return &Adapter{
-		threadsDir:   filepath.Join(home, ".local", "share", "amp", "threads"),
+		threadsDir:   threadsDir,
 		sessionIndex: make(map[string]string),
 		metaCache:    make(map[string]metaCacheEntry),
 		msgCache:     cache.New[msgCacheEntry](msgCacheMaxEntries),
 	}
+}
+
+// findAmpThreadsDir searches candidate paths for the Amp threads directory.
+// Returns the first path that exists, or the primary default if none found.
+func findAmpThreadsDir(home string) string {
+	candidates := ampThreadsDirCandidates(home)
+	for _, path := range candidates {
+		if info, err := os.Stat(path); err == nil && info.IsDir() {
+			return path
+		}
+	}
+	if len(candidates) > 0 {
+		return candidates[0]
+	}
+	return filepath.Join(home, ".local", "share", "amp", "threads")
+}
+
+// ampThreadsDirCandidates returns candidate paths for the Amp threads directory.
+// Follows Amp's path resolution: AMP_DATA_HOME > XDG_DATA_HOME (Linux) > ~/.local/share.
+func ampThreadsDirCandidates(home string) []string {
+	var candidates []string
+
+	// 1. AMP_DATA_HOME override (all platforms)
+	if ampHome := os.Getenv("AMP_DATA_HOME"); ampHome != "" {
+		candidates = append(candidates, filepath.Join(ampHome, "amp", "threads"))
+	}
+
+	// 2. XDG_DATA_HOME (Linux only)
+	if runtime.GOOS == "linux" {
+		if xdgData := os.Getenv("XDG_DATA_HOME"); xdgData != "" {
+			candidates = append(candidates, filepath.Join(xdgData, "amp", "threads"))
+		}
+	}
+
+	// 3. Default: ~/.local/share/amp/threads (all platforms)
+	candidates = append(candidates, filepath.Join(home, ".local", "share", "amp", "threads"))
+
+	return candidates
 }
 
 // ID returns the adapter identifier.
