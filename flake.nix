@@ -22,26 +22,33 @@
         let
           pkgs = import nixpkgs { inherit system; };
           version = if self ? shortRev then self.shortRev else "dev";
-          runtimeInputs = [ pkgs.td ];
+          tdVersion = "0.33.0";
         in
         {
+          td = pkgs.buildGoModule {
+            pname = "td";
+            version = tdVersion;
+            src = pkgs.fetchFromGitHub {
+              owner = "marcus";
+              repo = "td";
+              rev = "v${tdVersion}";
+              sha256 = pkgs.lib.fakeSha256;
+            };
+            vendorHash = pkgs.lib.fakeSha256;
+            subPackages = [ "cmd/td" ];
+          };
           sidecar = pkgs.buildGoModule {
             pname = "sidecar";
             inherit version;
             src = ./.;
             subPackages = [ "cmd/sidecar" ];
             vendorHash = "sha256-R/AjNJ4x4t1zXXzT+21cjY+9pxs4DVXU4xs88BQvHx4=";
-            nativeBuildInputs = [ pkgs.makeWrapper ];
             ldflags = [
               "-s"
               "-w"
               "-X"
               "main.Version=${version}"
             ];
-            postInstall = ''
-              wrapProgram $out/bin/sidecar \
-                --prefix PATH : ${pkgs.lib.makeBinPath runtimeInputs}
-            '';
           };
           default = self.packages.${system}.sidecar;
         }
